@@ -1,0 +1,10 @@
+# oapi-codegen config for the Arena backend (api-arena.santiment.net).
+# Input is the normalized spec produced by `task gen` (specnorm).
+package: arena
+output: internal/clients/arena/gen.go
+generate:
+  models: true
+  client: true
+output-options:
+  skip-prune: false
+  nullable-type: true

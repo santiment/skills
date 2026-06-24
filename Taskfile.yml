@@ -1,0 +1,50 @@
+# go-task task runner for the san-skills monorepo.
+# https://taskfile.dev
+version: "3"
+
+vars:
+  # Space-separated list of CLI binaries in the family. Add new tools here.
+  TOOLS: score
+  BIN_DIR: "{{.ROOT_DIR}}/bin"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  gen:
+    desc: Normalize OpenAPI specs (3.1->3.0 + operationId) and regenerate API clients
+    cmds:
+      - go run ./tools/specnorm api/specs/sanr.json      api/specs/sanr.normalized.json
+      - go run ./tools/specnorm api/specs/arena.json     api/specs/arena.normalized.json
+      - go tool oapi-codegen -config api/oapi-sanr.yaml  api/specs/sanr.normalized.json
+      - go tool oapi-codegen -config api/oapi-arena.yaml api/specs/arena.normalized.json
+      - go mod tidy
+
+  build:
+    desc: Build all CLI binaries into ./bin
+    cmds:
+      - for: { var: TOOLS }
+        cmd: go build -o "{{.BIN_DIR}}/{{.ITEM}}" ./cmd/{{.ITEM}}
+
+  lint:
+    desc: Run golangci-lint over the whole module
+    cmds:
+      - golangci-lint run ./...
+
+  test:
+    desc: Run unit tests (no network)
+    cmds:
+      - go test ./...
+
+  test-integration:
+    desc: Run integration tests against live APIs (needs creds in env)
+    cmds:
+      - go test -tags=integration ./...
+
+  tidy:
+    desc: Tidy go.mod/go.sum
+    cmds:
+      - go mod tidy

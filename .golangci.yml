@@ -1,0 +1,25 @@
+# golangci-lint v2 configuration for the san-skills monorepo.
+# Generated files (oapi-codegen gen.go carry the "Code generated ... DO NOT EDIT"
+# header) are excluded automatically.
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: standard
+  enable:
+    - misspell
+    - revive
+    - gocritic
+    - bodyclose
+    - nilerr
+  settings:
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+
+formatters:
+  enable:
+    - gofmt

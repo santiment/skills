@@ -1,0 +1,10 @@
+# oapi-codegen config for the Sanr backend (api.sanr.app).
+# Input is the normalized spec produced by `task gen` (specnorm).
+package: sanr
+output: internal/clients/sanr/gen.go
+generate:
+  models: true
+  client: true
+output-options:
+  skip-prune: false
+  nullable-type: true

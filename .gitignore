@@ -1,0 +1,20 @@
+# Compiled binaries (anchored to repo root so cmd/score/ is not ignored)
+/bin/
+/dist/
+/score
+
+# Generated, normalized OpenAPI specs (produced by `task gen`)
+api/specs/*.normalized.json
+
+# Local config / credentials caches
+*.local.yaml
+.env
+
+# Go
+*.test
+*.out
+coverage.*
+
+# Editors
+.idea/
+.vscode/
