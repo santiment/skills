@@ -43,12 +43,11 @@ func runCmd(t *testing.T, args ...string) (*App, string) {
 func TestAuthSetTokenRoundTrip(t *testing.T) {
 	// Clear env credentials so the file layer is what status reflects.
 	t.Setenv(config.EnvSanrToken, "")
-	t.Setenv(config.EnvSanrRefresh, "")
 	t.Setenv(config.EnvArenaAPIKey, "")
 
 	cfg := filepath.Join(t.TempDir(), "config.yaml")
 
-	app, out := runCmd(t, "--config", cfg, "auth", "set-token", "--token", "jwt-abcdef", "--refresh", "ref-xyz")
+	app, out := runCmd(t, "--config", cfg, "auth", "set-token", "--token", "jwt-abcdef")
 	if app.exitCode != exitcode.OK {
 		t.Fatalf("set-token exit=%d, out=%s", app.exitCode, out)
 	}

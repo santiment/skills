@@ -39,7 +39,7 @@ docs/                conventions and extension guide
 task gen               # normalize specs + regenerate API clients
 task build             # build all CLI binaries into ./bin
 task test              # unit tests (no network)
-task test-integration  # tests against live APIs (read-only)
+task test-integration  # tests against live APIs (reads by default; writes gated by env flags)
 task lint              # golangci-lint
 ```
 
@@ -54,5 +54,8 @@ task build
 
 Credentials (only for authenticated endpoints) come from flags, environment
 (`SANR_TOKEN`, `ARENA_API_KEY`, `SCORE_*`), or `~/.config/score/config.yaml`,
-in that precedence. See the [score skill](skills/score-cli/SKILL.md) for the
-full workflow and exit-code contract.
+in that precedence. Authentication is a single long-lived Score API token
+(a Sanr JWT): **the same token authenticates both backends** — bearer for Sanr,
+`x-api-key` for Arena — so set `ARENA_API_KEY` to the same value as `SANR_TOKEN`.
+There is no refresh flow. See the [score skill](skills/score-cli/SKILL.md) for
+the full workflow and exit-code contract.

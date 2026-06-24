@@ -29,6 +29,8 @@ Run the binary directly: `go run ./cmd/score <args>` or `./bin/score <args>` aft
 - `health` pings both.
 Note `profile` (Sanr, the authenticated user's own record) and `issuers` (Arena, public directory) are deliberately separate commands because the resource name collides across backends with different schemas.
 
+**One token, both backends.** Auth is a single long-lived Sanr JWT (~5y). The *same* token value is accepted by both backends — sent as the Sanr `Authorization: Bearer` header and as the Arena `x-api-key` header — so a single credential covers everything (set `ARENA_API_KEY` to the same value as `SANR_TOKEN`). There is **no refresh flow**: `config` holds only `SanrToken`/`ArenaAPIKey`, and `SaveTokens` caches just that one token.
+
 **Codegen pipeline — read before touching API clients.** `task gen` does: `tools/specnorm` (normalize each vendored spec in `api/specs/*.json` → `*.normalized.json`) → `oapi-codegen` (per `api/oapi-{sanr,arena}.yaml`) → `go mod tidy`.
 - `internal/clients/{sanr,arena}/gen.go` is **generated — never hand-edit** (carries the DO-NOT-EDIT header, excluded from lint, committed to git). `*.normalized.json` is generated and **gitignored**.
 - `client.go` in those packages is **hand-written and never overwritten** — it wires the generated client to `httpx` and injects auth.
@@ -42,7 +44,7 @@ Note `profile` (Sanr, the authenticated user's own record) and `issuers` (Arena,
 
 **Reusable platform (`internal/platform/`)** — every future tool builds on this, not on its own HTTP/config/output code:
 - `httpx`: the HTTP engine; implements the `Do(*http.Request)` interface the generated clients expect; retries 429/5xx with backoff.
-- `config`: layers flags > env (`SANR_TOKEN`, `ARENA_API_KEY`, `SCORE_*`) > file profile (`~/.config/score/config.yaml`) > defaults; `SaveTokens` is the login cache.
+- `config`: layers flags > env (`SANR_TOKEN`, `ARENA_API_KEY`, `SCORE_*`) > file profile (`~/.config/score/config.yaml`) > defaults; `SaveTokens(path, profile, token)` caches the single API token (the login cache).
 - `output`: `--json` passes the API body through verbatim on stdout; human mode pretty-prints; errors are JSON `{"error":{...}}` on stderr.
 - `exitcode` + `apierr`: the **stable exit-code contract** (0 ok, 1 generic, 2 usage, 3 auth, 4 not found, 5 rate-limited, 6 server, 7 network). This and the `--json` output shape are part of the public interface — keep them stable. An error can override its code via the `exitcode.Coder` interface (used for usage errors → 2).
 

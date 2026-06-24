@@ -110,7 +110,7 @@ func TestResolveMissingFileUsesDefaults(t *testing.T) {
 
 func TestSaveTokensRoundTrip(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "nested", "config.yaml")
-	if err := SaveTokens(cfgPath, "default", "tok-123", "refresh-456"); err != nil {
+	if err := SaveTokens(cfgPath, "default", "tok-123"); err != nil {
 		t.Fatal(err)
 	}
 	s, err := Resolve(Overrides{ConfigPath: cfgPath})
@@ -119,9 +119,6 @@ func TestSaveTokensRoundTrip(t *testing.T) {
 	}
 	if s.SanrToken != "tok-123" {
 		t.Errorf("token not persisted, got %q", s.SanrToken)
-	}
-	if s.SanrRefreshToken != "refresh-456" {
-		t.Errorf("refresh not persisted, got %q", s.SanrRefreshToken)
 	}
 	// File must be created with restrictive permissions.
 	info, err := os.Stat(cfgPath)

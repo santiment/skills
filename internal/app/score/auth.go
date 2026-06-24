@@ -14,32 +14,33 @@ import (
 func newAuthCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Manage Sanr authentication (token cache, login, refresh)",
-		Long: "Sanr uses wallet-signature authentication, so the primary path for agents\n" +
-			"is to provide a pre-obtained JWT via --token / SANR_TOKEN / `auth set-token`.\n" +
-			"`auth login` performs the signature exchange and best-effort caches a token\n" +
-			"returned via Set-Cookie; `auth refresh` renews using a cached refresh token.",
+		Short: "Manage Santiment Score authentication (token cache, login)",
+		Long: "The CLI authenticates with a single long-lived Sanr JWT (~5y). The same\n" +
+			"token also authenticates Arena (sent as x-api-key), so one credential\n" +
+			"covers both backends. Provide it via --token / SANR_TOKEN / `auth set-token`\n" +
+			"(set ARENA_API_KEY to the same value, or rely on --api-key). `auth login`\n" +
+			"performs the wallet-signature exchange and best-effort caches the token\n" +
+			"returned via Set-Cookie.",
 	}
 	cmd.AddCommand(
 		newAuthSetTokenCmd(app),
 		newAuthStatusCmd(app),
 		newAuthLoginCmd(app),
-		newAuthRefreshCmd(app),
 	)
 	return cmd
 }
 
 func newAuthSetTokenCmd(app *App) *cobra.Command {
-	var token, refresh string
+	var token string
 	c := &cobra.Command{
 		Use:   "set-token",
-		Short: "Cache a Sanr JWT (and optional refresh token) into the active profile",
+		Short: "Cache the Santiment Score API token (works for both backends) into the active profile",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if token == "" {
 				return app.fail(usageError("--token is required"))
 			}
-			if err := config.SaveTokens(app.settings.ConfigPath, app.settings.ProfileName, token, refresh); err != nil {
+			if err := config.SaveTokens(app.settings.ConfigPath, app.settings.ProfileName, token); err != nil {
 				return app.fail(err)
 			}
 			return app.printer.EmitValue(map[string]any{
@@ -49,8 +50,7 @@ func newAuthSetTokenCmd(app *App) *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&token, "token", "", "Sanr JWT to cache (required)")
-	c.Flags().StringVar(&refresh, "refresh", "", "Sanr refresh token to cache")
+	c.Flags().StringVar(&token, "token", "", "Santiment Score API token (JWT) to cache (required)")
 	return c
 }
 
@@ -67,7 +67,6 @@ func newAuthStatusCmd(app *App) *cobra.Command {
 				"sanrBaseURL":     s.SanrBaseURL,
 				"arenaBaseURL":    s.ArenaBaseURL,
 				"sanrToken":       masked(s.SanrToken),
-				"sanrRefresh":     masked(s.SanrRefreshToken),
 				"arenaApiKey":     masked(s.ArenaAPIKey),
 				"sanrAuthorized":  s.SanrToken != "",
 				"arenaAuthorized": s.ArenaAPIKey != "",
@@ -78,7 +77,7 @@ func newAuthStatusCmd(app *App) *cobra.Command {
 
 func newAuthLoginCmd(app *App) *cobra.Command {
 	var original, signed string
-	var accessExpiresIn, refreshExpiresIn int
+	var accessExpiresIn int
 	c := &cobra.Command{
 		Use:   "login",
 		Short: "Exchange a signed wallet message for a session, caching any returned token",
@@ -95,9 +94,6 @@ func newAuthLoginCmd(app *App) *cobra.Command {
 			if accessExpiresIn > 0 {
 				body.AccessTokenExpiresIn = &accessExpiresIn
 			}
-			if refreshExpiresIn > 0 {
-				body.RefreshTokenExpiresIn = &refreshExpiresIn
-			}
 			resp, err := client.PostV1AuthWithResponse(app.ctx(cmd), body)
 			if err != nil {
 				return app.fail(err)
@@ -105,8 +101,8 @@ func newAuthLoginCmd(app *App) *cobra.Command {
 			if resp.StatusCode() >= 400 {
 				return app.emit(sanr.Backend, resp.StatusCode(), resp.Body)
 			}
-			if tok, rt := tokensFromCookies(resp.HTTPResponse); tok != "" {
-				if err := config.SaveTokens(app.settings.ConfigPath, app.settings.ProfileName, tok, rt); err != nil {
+			if tok := tokenFromCookies(resp.HTTPResponse); tok != "" {
+				if err := config.SaveTokens(app.settings.ConfigPath, app.settings.ProfileName, tok); err != nil {
 					return app.fail(err)
 				}
 			}
@@ -116,64 +112,26 @@ func newAuthLoginCmd(app *App) *cobra.Command {
 	c.Flags().StringVar(&original, "original-message", "", "the original message that was signed (required)")
 	c.Flags().StringVar(&signed, "signed-message", "", "the wallet signature of the message (required)")
 	c.Flags().IntVar(&accessExpiresIn, "access-expires", 0, "access token lifetime in seconds")
-	c.Flags().IntVar(&refreshExpiresIn, "refresh-expires", 0, "refresh token lifetime in seconds")
 	return c
 }
 
-func newAuthRefreshCmd(app *App) *cobra.Command {
-	var expiresIn int
-	c := &cobra.Command{
-		Use:   "refresh",
-		Short: "Renew the session using the cached Sanr refresh token",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if app.settings.SanrRefreshToken == "" {
-				return app.fail(usageError("no cached refresh token; run `score auth login` or `auth set-token --refresh`"))
-			}
-			client, err := app.sanr()
-			if err != nil {
-				return app.fail(err)
-			}
-			body := sanr.PostV1AuthRefreshJSONRequestBody{RefreshToken: app.settings.SanrRefreshToken}
-			if expiresIn > 0 {
-				body.ExpiresIn = &expiresIn
-			}
-			resp, err := client.PostV1AuthRefreshWithResponse(app.ctx(cmd), body)
-			if err != nil {
-				return app.fail(err)
-			}
-			if resp.StatusCode() < 400 {
-				if tok, rt := tokensFromCookies(resp.HTTPResponse); tok != "" {
-					if err := config.SaveTokens(app.settings.ConfigPath, app.settings.ProfileName, tok, rt); err != nil {
-						return app.fail(err)
-					}
-				}
-			}
-			return app.emit(sanr.Backend, resp.StatusCode(), resp.Body)
-		},
-	}
-	c.Flags().IntVar(&expiresIn, "expires", 0, "new token lifetime in seconds")
-	return c
-}
-
-// tokensFromCookies best-effort extracts an access token and refresh token from
-// Set-Cookie headers, matching common cookie names.
-func tokensFromCookies(resp *http.Response) (access, refresh string) {
+// tokenFromCookies best-effort extracts an access token from Set-Cookie headers,
+// matching common cookie names.
+func tokenFromCookies(resp *http.Response) string {
 	if resp == nil {
-		return "", ""
+		return ""
 	}
 	for _, ck := range resp.Cookies() {
 		name := strings.ToLower(ck.Name)
-		switch {
-		case strings.Contains(name, "refresh"):
-			refresh = ck.Value
-		case strings.Contains(name, "access"), name == "token", strings.Contains(name, "jwt"), strings.Contains(name, "auth"):
-			if access == "" {
-				access = ck.Value
-			}
+		if strings.Contains(name, "refresh") {
+			continue
+		}
+		if strings.Contains(name, "access") || name == "token" ||
+			strings.Contains(name, "jwt") || strings.Contains(name, "auth") {
+			return ck.Value
 		}
 	}
-	return access, refresh
+	return ""
 }
 
 func masked(s string) string {

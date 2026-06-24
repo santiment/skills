@@ -26,17 +26,15 @@ const (
 	EnvSanrBaseURL  = "SANR_BASE_URL"
 	EnvArenaBaseURL = "ARENA_BASE_URL"
 	EnvSanrToken    = "SANR_TOKEN"
-	EnvSanrRefresh  = "SANR_REFRESH_TOKEN"
 	EnvArenaAPIKey  = "ARENA_API_KEY"
 )
 
 // Profile is one named set of backend settings in the config file.
 type Profile struct {
-	SanrBaseURL      string `yaml:"sanr_base_url,omitempty"`
-	ArenaBaseURL     string `yaml:"arena_base_url,omitempty"`
-	SanrToken        string `yaml:"sanr_token,omitempty"`
-	SanrRefreshToken string `yaml:"sanr_refresh_token,omitempty"`
-	ArenaAPIKey      string `yaml:"arena_api_key,omitempty"`
+	SanrBaseURL  string `yaml:"sanr_base_url,omitempty"`
+	ArenaBaseURL string `yaml:"arena_base_url,omitempty"`
+	SanrToken    string `yaml:"sanr_token,omitempty"`
+	ArenaAPIKey  string `yaml:"arena_api_key,omitempty"`
 }
 
 // File is the on-disk config structure.
@@ -58,13 +56,12 @@ type Overrides struct {
 
 // Settings is the resolved, effective configuration the app runs with.
 type Settings struct {
-	ProfileName      string
-	ConfigPath       string
-	SanrBaseURL      string
-	ArenaBaseURL     string
-	SanrToken        string
-	SanrRefreshToken string
-	ArenaAPIKey      string
+	ProfileName  string
+	ConfigPath   string
+	SanrBaseURL  string
+	ArenaBaseURL string
+	SanrToken    string
+	ArenaAPIKey  string
 }
 
 // DefaultPath returns the config file path, honoring SCORE_CONFIG and
@@ -124,16 +121,16 @@ func Resolve(ov Overrides) (*Settings, error) {
 			prof.SanrBaseURL, DefaultSanrBaseURL),
 		ArenaBaseURL: firstNonEmpty(ov.ArenaBaseURL, os.Getenv(EnvArenaBaseURL),
 			prof.ArenaBaseURL, DefaultArenaBaseURL),
-		SanrToken:        firstNonEmpty(ov.Token, os.Getenv(EnvSanrToken), prof.SanrToken),
-		SanrRefreshToken: firstNonEmpty(os.Getenv(EnvSanrRefresh), prof.SanrRefreshToken),
-		ArenaAPIKey:      firstNonEmpty(ov.APIKey, os.Getenv(EnvArenaAPIKey), prof.ArenaAPIKey),
+		SanrToken:   firstNonEmpty(ov.Token, os.Getenv(EnvSanrToken), prof.SanrToken),
+		ArenaAPIKey: firstNonEmpty(ov.APIKey, os.Getenv(EnvArenaAPIKey), prof.ArenaAPIKey),
 	}
 	return s, nil
 }
 
-// SaveTokens writes Sanr auth tokens into the named profile of the config file,
-// creating the file and parent directory if needed. This backs `score auth login`.
-func SaveTokens(path, profile, token, refresh string) error {
+// SaveTokens caches the Sanr API token into the named profile of the config
+// file, creating the file and parent directory if needed. The same token also
+// authenticates Arena, so this single value is all the CLI needs to persist.
+func SaveTokens(path, profile, token string) error {
 	if profile == "" {
 		profile = DefaultProfile
 	}
@@ -147,9 +144,6 @@ func SaveTokens(path, profile, token, refresh string) error {
 		file.Profiles[profile] = prof
 	}
 	prof.SanrToken = token
-	if refresh != "" {
-		prof.SanrRefreshToken = refresh
-	}
 	if file.CurrentProfile == "" {
 		file.CurrentProfile = profile
 	}

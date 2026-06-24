@@ -20,12 +20,12 @@ and returns raw JSON with stable exit codes for reliable automation.
 
 ## INPUTS
 - A built `score` binary (`./bin/score` after `task build`, or on PATH).
-- For authenticated calls: a Sanr JWT (`--token` / `SANR_TOKEN` / `score auth set-token`) and/or an Arena API key (`--api-key` / `ARENA_API_KEY`). Public endpoints (health, markets, issuers list) need none.
+- For authenticated calls: a single long-lived Santiment Score API token (a Sanr JWT, ~5y validity). **The same token authenticates both backends** — it is sent as the Sanr bearer token and as the Arena `x-api-key`. Provide it via `--token` / `SANR_TOKEN` / `score auth set-token`; to authenticate Arena set `ARENA_API_KEY` (or `--api-key`) to the **same** value. There is no refresh flow. Public endpoints (health, markets, issuers list) need no credentials.
 - (optional) `--profile` / `--config` to select a credentials profile.
 
 ## PROCESS
 1. Verify connectivity: `score health --json` (pings both backends; expect exit 0).
-2. Ensure credentials for the target command (see DECISION RULES). For Sanr writes, set a token via `score auth set-token --token <JWT>` or `SANR_TOKEN`; for Arena, set `ARENA_API_KEY`.
+2. Ensure credentials for the target command (see DECISION RULES). Set the token once via `score auth set-token --token <JWT>` or `SANR_TOKEN`; for Arena commands set `ARENA_API_KEY` to the same token value.
 3. Discover the exact command/flags when unsure: `score describe --json` (full catalog) or `score <group> --help`.
 4. Run the command with `--json`. Pass list filters via `--take/--skip/--sort/--filter` (Sanr) or `--limit/--offset` (Arena), and any other query parameter via repeatable `--param key=value`.
 5. For write operations, pass the JSON body via `--data '<json>'` or `--data-file <path|->`.
@@ -56,11 +56,11 @@ score profile get --json
 score contracts list --json
 ```
 
-Auth:
+Auth (one token for both backends; no refresh flow):
 ```
-score auth set-token --token "$SANR_JWT"      # cache a known JWT into the profile
+score auth set-token --token "$SANR_JWT"      # cache the token into the profile
+export SANR_TOKEN="$SANR_JWT" ARENA_API_KEY="$SANR_JWT"   # same value for both backends
 score auth status --json                       # show profile, base URLs, credential presence
-score auth refresh --json                      # renew using a cached refresh token
 ```
 
 Write examples (state-changing):
@@ -77,7 +77,7 @@ echo '{"amount":"100"}' | score portfolio deposit --data-file - --json
 - Always branch on the exit code before parsing stdout.
 
 ## FAILURE HANDLING
-- Exit 3 (auth): credentials missing or expired → set/refresh the token (`score auth set-token` or `SANR_TOKEN`, `ARENA_API_KEY`) and retry; do not loop blindly.
+- Exit 3 (auth): credentials missing or expired → set the token (`score auth set-token` or `SANR_TOKEN`, and `ARENA_API_KEY` to the same value for Arena) and retry; do not loop blindly.
 - Exit 4 (not found): the id/username/address does not exist → re-list to find a valid identifier instead of retrying.
 - Exit 7 (network/timeout): backend unreachable → run `score health --json` to localize the failure; raise `--timeout` for slow calls; retry with backoff a limited number of times.
 - Exit 2 (usage): a flag/arg is wrong → run `score <command> --help` or `score describe --json`; fix the invocation rather than retrying verbatim.
