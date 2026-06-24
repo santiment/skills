@@ -129,6 +129,33 @@ func assertJSON(t *testing.T, out string) any {
 	return v
 }
 
+// knownEmptyAccountMsgs are backend error messages that mean "the token is
+// valid but this account simply has no data for this endpoint" — e.g. a
+// GDPR-cleared test account that no longer has an issuer/portfolio record. We
+// treat them as an acceptable (skipped) outcome so the suite stays green across
+// account states while still failing on genuine breakage (5xx, network, etc.).
+var knownEmptyAccountMsgs = map[string]bool{
+	"ISSUER_NOT_FOUND": true,
+}
+
+// assertAuthedRead accepts a successful authed read, or a recognized
+// "no data for this account" business error (which it reports as a skip).
+func assertAuthedRead(t *testing.T, app *App, out string) {
+	t.Helper()
+	if app.exitCode == exitcode.OK {
+		assertJSON(t, out)
+		return
+	}
+	if obj, ok := decodeObject(t, out); ok {
+		if e, ok := obj["error"].(map[string]any); ok {
+			if msg, _ := e["message"].(string); knownEmptyAccountMsgs[msg] {
+				t.Skipf("token valid but account has no data here: %s", msg)
+			}
+		}
+	}
+	t.Fatalf("authed read failed: exit=%d\noutput: %s", app.exitCode, out)
+}
+
 // assertHasKey fails unless out is a JSON object containing key.
 func assertHasKey(t *testing.T, out, key string) {
 	t.Helper()

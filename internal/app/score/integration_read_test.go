@@ -52,15 +52,30 @@ func TestLiveReadSanrPublic(t *testing.T) {
 func TestLiveReadSanrAuthed(t *testing.T) {
 	requireSanrAuth(t)
 	runReadCases(t, []readCase{
+		{name: "profile-get", args: []string{"profile", "get"}},
+		{name: "profile-notifications-status", args: []string{"profile", "notifications-status"}},
+		{name: "pairs-favorites", args: []string{"pairs", "favorites", "--take", "2"}}, // requires auth (401 when anonymous)
+	})
+}
+
+// Portfolio reads are authenticated but also depend on the account actually
+// having an issuer/portfolio. They tolerate the "no data for this account"
+// business error so the suite passes for both populated and cleared accounts.
+func TestLiveReadPortfolio(t *testing.T) {
+	requireSanrAuth(t)
+	cases := []readCase{
 		{name: "portfolio-balances", args: []string{"portfolio", "balances", "--take", "2"}},
 		{name: "portfolio-historical", args: []string{"portfolio", "historical-balances", "--take", "2"}},
 		{name: "portfolio-distribution", args: []string{"portfolio", "distribution"}},
 		{name: "portfolio-positions", args: []string{"portfolio", "positions"}},
 		{name: "portfolio-orders", args: []string{"portfolio", "orders"}},
-		{name: "profile-get", args: []string{"profile", "get"}},
-		{name: "profile-notifications-status", args: []string{"profile", "notifications-status"}},
-		{name: "pairs-favorites", args: []string{"pairs", "favorites", "--take", "2"}}, // requires auth (401 when anonymous)
-	})
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app, out := runLive(t, tc.args...)
+			assertAuthedRead(t, app, out)
+		})
+	}
 }
 
 // Arena read endpoints — require a valid ARENA_API_KEY.
