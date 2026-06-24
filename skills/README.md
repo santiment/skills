@@ -8,7 +8,9 @@ CLI tool (or workflow) so an AI agent knows when and how to use it.
 ```
 skills/
 ├── _template/SKILL.md   # copy this to start a new skill
-├── score-cli/SKILL.md   # skill for the `score` CLI
+├── score/               # skill for the `score` CLI (SKILL.md + bundled binary in scripts/)
+│   ├── SKILL.md
+│   └── scripts/         # run.sh launcher + gzip+base64 binary blobs
 └── <name>/SKILL.md      # one folder per skill
 ```
 

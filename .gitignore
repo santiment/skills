@@ -3,6 +3,9 @@
 /dist/
 /score
 
+# Runtime cache of the score binary materialized by the skill's run.sh wrapper
+skills/score/scripts/.bin/
+
 # Generated, normalized OpenAPI specs (produced by `task gen`)
 api/specs/*.normalized.json
 

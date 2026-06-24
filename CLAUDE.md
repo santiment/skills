@@ -48,8 +48,45 @@ Note `profile` (Sanr, the authenticated user's own record) and `issuers` (Arena,
 - `output`: `--json` passes the API body through verbatim on stdout; human mode pretty-prints; errors are JSON `{"error":{...}}` on stderr.
 - `exitcode` + `apierr`: the **stable exit-code contract** (0 ok, 1 generic, 2 usage, 3 auth, 4 not found, 5 rate-limited, 6 server, 7 network). This and the `--json` output shape are part of the public interface — keep them stable. An error can override its code via the `exitcode.Coder` interface (used for usage errors → 2).
 
+## Skill packaging for `npx skills` — read before bundling a binary
+
+Skills are distributed with the Vercel `skills` CLI: `npx skills add santiment/skills`
+copies each `skills/<name>/` directory (SKILL.md + sibling files) into the consumer's
+agent skills dir (`.claude/skills/<name>/`, `.agents/skills/<name>/`, …). A skill must
+be **self-contained**: an agent installs it into a foreign project that has no Go
+toolchain, no Taskfile, no `./bin`. So a tool-backed skill ships its binary *inside the
+skill*, not as a "build it first" instruction.
+
+**The non-obvious transport constraint (this drove the whole design).** For a **public**
+GitHub repo, `npx skills` does **not** git-clone by default — it fetches a text snapshot
+from `skills.sh/api/download/...` and writes every file with `writeFile(contents, 'utf-8')`
+(no base64 decode anywhere in its install path). **A raw committed binary is corrupted or
+dropped on that path.** A git-clone fallback (which *would* preserve bytes) only kicks in
+when the snapshot 404s — i.e. only until skills.sh indexes the repo. Don't rely on it.
+Text files (scripts, base64) survive **both** paths intact.
+
+**The pattern — bundle the binary as text.** Established by the `score` skill; copy it for
+any new tool-backed skill (a skill is named after its tool, e.g. `skills/score/`):
+- `task skill-bundle` cross-compiles the tool (`CGO_ENABLED=0`, pure `net/http` → trivial)
+  for each `GOOS/GOARCH` in `SKILL_PLATFORMS` and writes `skills/<tool>/scripts/<tool>-<os>-<arch>.gz.b64`
+  (gzip+base64 text, ~8 MB/platform). Default targets: `linux/amd64`, `darwin/arm64`.
+- `skills/<tool>/scripts/run.sh` is the launcher the SKILL.md tells the agent to call
+  (`bash <skill-dir>/scripts/run.sh <args>`). On first run it decodes the host's blob into
+  `scripts/.bin/` (gitignored), `chmod +x`, and `exec`s it; later runs reuse the cache.
+  Decode is base64→gunzip with a portable fallback (`base64 --decode` on GNU, else `openssl base64 -d`).
+- `.gitattributes` pins `skills/<tool>/scripts/*.gz.b64 -text -diff` so CRLF normalization can't
+  corrupt the encoded bytes.
+- The SKILL.md states the tool ships bundled (no build step) and uses `score` as shorthand
+  for the launcher. For an **unsupported platform** the launcher exits 7 with a message →
+  add that `GOOS/GOARCH` to `SKILL_PLATFORMS` and rerun `task skill-bundle`.
+
+Verify a skill end-to-end with `npx skills add ./skills/<name> --copy -a claude-code -y`
+into a scratch dir, then run its `scripts/run.sh` from the installed location.
+(Alternative if repo size from the blobs ever hurts: ship a `setup.sh` that downloads a
+prebuilt binary from GitHub Releases instead of embedding it — needs a release workflow.)
+
 ## Conventions that matter when editing
 
 - Agent-first UX is mandatory for any CLI here: `--json`, a `describe [--json]` catalog command, stable exit codes, stable flags, fully non-interactive (no hidden prompts). Mark state-changing subcommands as such in help and SKILL.md.
 - Tests inject a buffer-backed printer before `Execute()`; `App.setup` only creates a printer when `app.printer == nil`. The routing tests in `internal/app/score/routing_test.go` spin httptest servers and assert which backend a command hits — mirror that when adding commands.
-- Adding a tool/command or a new backend: follow `docs/conventions.md` (new `cmd/<tool>` + `internal/app/<tool>`, reuse `internal/platform`, vendor spec + add a `gen` step + `client.go`, add to `TOOLS` in `Taskfile.yml`, write `skills/<tool>/SKILL.md` from `skills/_template`).
+- Adding a tool/command or a new backend: follow `docs/conventions.md` (new `cmd/<tool>` + `internal/app/<tool>`, reuse `internal/platform`, vendor spec + add a `gen` step + `client.go`, add to `TOOLS` in `Taskfile.yml`, write `skills/<tool>/SKILL.md` from `skills/_template`). To make that skill installable + self-contained, follow **Skill packaging for `npx skills`** above (bundle the binary via `task skill-bundle` + a `scripts/run.sh` launcher).

@@ -1,5 +1,5 @@
 ---
-name: score-cli
+name: score
 description: Query and mutate Santiment Score data (predictions, markets, portfolio, leaderboards, issuers, stakes) through the `score` CLI. Use when an agent or user needs to read or write Score product data from a shell with machine-readable JSON output.
 ---
 
@@ -7,6 +7,14 @@ description: Query and mutate Santiment Score data (predictions, markets, portfo
 Drive the Santiment Score product from the command line via the `score` binary,
 which routes each command to the correct backend (Sanr or Arena) automatically
 and returns raw JSON with stable exit codes for reliable automation.
+
+The `score` binary **ships inside this skill** — no build or install step is
+needed. Run it through the bundled launcher next to this file:
+`bash <this-skill-dir>/scripts/run.sh <args>`. On first run the launcher
+materializes the right binary for the host OS/arch from a bundled (gzip+base64)
+blob, caches it under `scripts/.bin/`, and execs it. **Below, `score` is
+shorthand for that launcher** — substitute `bash <skill-dir>/scripts/run.sh`,
+or set `alias score='bash <skill-dir>/scripts/run.sh'` for the session.
 
 You (the agent) are expected to **guide the user**, who may be non-technical:
 acquire credentials for them, pick the right command, run it, and explain the
@@ -18,12 +26,12 @@ result. Never make the user hunt for flags or backends — that is your job.
 - An agent needs scriptable, JSON output from the Score backends.
 
 ## DO NOT USE WHEN
-- The `score` binary is not built/available — build it first with `task build`, then use `./bin/score`.
 - The task targets a non-Score API or service.
 - The task is pure data analysis on data already fetched (no API call needed).
 
 ## INPUTS
-- A built `score` binary (`./bin/score` after `task build`, or on PATH).
+- The bundled `score` launcher (`scripts/run.sh` in this skill directory) — no
+  build or install needed; it self-provisions the binary on first run.
 - For authenticated or write commands: **one** Santiment Score API token (a Sanr
   JWT, ~5-year validity). The **same token authenticates both backends** — the CLI
   sends it as the Sanr bearer token and reuses it as the Arena `x-api-key`, so you
@@ -76,6 +84,11 @@ Notes:
 - PRIORITY 4 — When a command needs an id/username/address you do not have, list first to obtain a real one (e.g. `markets list` → use a `marketId`), then call the detail/write command.
 
 ## TOOL USAGE
+The real invocation is the bundled launcher, e.g.
+`bash <skill-dir>/scripts/run.sh health --json`. For readability, `score` below
+means that launcher (alias it if you like). Everything after `score` — flags,
+subcommands, args — is passed through to the binary unchanged.
+
 Global flags (apply to every command): `--json`, `--profile`, `--config`,
 `--base-url-sanr`, `--base-url-arena`, `--token`, `--api-key`, `--timeout`,
 `--verbose`, `-q/--quiet`.
@@ -141,7 +154,7 @@ echo '{"...":"..."}' | score portfolio deposit --data-file - --json
 - **Empty but successful response:** some endpoints reply 200 with an empty body or empty `data` when there is simply no data — exit 0, not an error.
 - **Detail/write command needs an id you don't have:** list first (`markets list`, `issuers list`, `predictions list`) and reuse a real id; don't invent one.
 - **Unknown write-body schema:** never invent money amounts/asset prices. Read `score <command> --help` / `describe`, or ask the user to capture a real payload from the web client.
-- **Binary missing / "command not found":** `task build`, then call `./bin/score` (or add it to PATH).
+- **Launcher exits 7 "no bundled binary for <os>/<arch>":** the host platform isn't bundled. From the repo run `task skill-bundle` after adding that `GOOS/GOARCH` to `SKILL_PLATFORMS` in `Taskfile.yml`, then reinstall the skill. (Default bundled targets: linux/amd64, darwin/arm64.)
 - **State-changing command requested casually:** confirm intent before running anything in PRIORITY 2, and treat `profile gdpr` (account deletion) as requiring explicit, repeated confirmation — prefer not to run it at all.
 - **Human-readable vs JSON:** always pass `--json` when you will parse the output; human mode pretty-prints and is for people, not scripts.
 

@@ -1,0 +1,4 @@
+# Bundled score binaries shipped inside the score skill as gzip+base64
+# text. Keep their bytes verbatim: never apply CRLF/text normalization (which
+# would corrupt the encoded payload) and don't render diffs for them.
+skills/score/scripts/*.gz.b64 -text -diff

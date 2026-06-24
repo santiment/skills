@@ -12,7 +12,7 @@ the tree. See [`docs/conventions.md`](docs/conventions.md).
 
 | Tool | Description | Skill |
 |------|-------------|-------|
-| [`score`](cmd/score) | Agent-friendly client for the Santiment Score APIs (Sanr + Arena), with automatic backend routing | [`skills/score-cli`](skills/score-cli/SKILL.md) |
+| [`score`](cmd/score) | Agent-friendly client for the Santiment Score APIs (Sanr + Arena), with automatic backend routing | [`skills/score`](skills/score/SKILL.md) |
 
 ## Layout
 
@@ -38,12 +38,34 @@ docs/                conventions and extension guide
 ```
 task gen               # normalize specs + regenerate API clients
 task build             # build all CLI binaries into ./bin
+task skill-bundle      # bundle the score binary (gzip+base64) into the score skill
 task test              # unit tests (no network)
 task test-integration  # tests against live APIs (reads by default; writes gated by env flags)
 task lint              # golangci-lint
 ```
 
-## Quick start (`score`)
+## Install as an agent skill (`npx skills`)
+
+The `score` skill is **self-contained**: it bundles the `score` binary as a
+gzip+base64 text blob, so installing the skill is all an agent needs — no Go, no
+`task build`, no PATH setup.
+
+```
+npx skills add santiment/skills
+```
+
+This installs `skills/score` (SKILL.md + `scripts/`) into your agent's skills
+directory. On first use the bundled `scripts/run.sh` launcher materializes the
+right binary for your OS/arch (cached under `scripts/.bin/`) and runs it:
+
+```
+bash <skill-dir>/scripts/run.sh health --json
+```
+
+Default bundled targets are `linux/amd64` and `darwin/arm64`; rebuild the blobs
+with `task skill-bundle` (extend `SKILL_PLATFORMS` in `Taskfile.yml` for more).
+
+## Quick start (`score`, from this repo)
 
 ```
 task build
@@ -65,5 +87,5 @@ It is cached in `~/.config/score/config.yaml` (mode 0600) and reused by every
 later command. Credentials otherwise resolve from flags > env (`SANR_TOKEN`,
 `ARENA_API_KEY`, `SCORE_*`) > config file. There is no refresh flow, and no need
 to set `ARENA_API_KEY` separately (it falls back to the token). See the
-[score skill](skills/score-cli/SKILL.md) for the full workflow and exit-code
+[score skill](skills/score/SKILL.md) for the full workflow and exit-code
 contract.
