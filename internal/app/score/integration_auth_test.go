@@ -3,10 +3,8 @@
 package score
 
 import (
-	"os"
 	"testing"
 
-	"santiment.net/san-skills/internal/platform/config"
 	"santiment.net/san-skills/internal/platform/exitcode"
 )
 
@@ -27,16 +25,6 @@ func TestLiveAuthStatusAuthorized(t *testing.T) {
 	if obj["arenaAuthorized"] != true {
 		t.Errorf("arenaAuthorized: want true, got %v", obj["arenaAuthorized"])
 	}
-}
-
-// auth refresh exchanges the cached refresh token for a fresh session.
-func TestLiveAuthRefresh(t *testing.T) {
-	requireSanrAuth(t)
-	if os.Getenv(config.EnvSanrRefresh) == "" {
-		t.Skipf("set %s to run the refresh test", config.EnvSanrRefresh)
-	}
-	app, out := runLive(t, "auth", "refresh")
-	assertOK(t, app, out)
 }
 
 // auth login with an invalid signature must be rejected by the backend (a 4xx),

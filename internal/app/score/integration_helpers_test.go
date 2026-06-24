@@ -8,14 +8,14 @@
 // gracefully: tests skip (never fail) when a credential or opt-in flag is
 // absent. See README / SKILL.md for the full list. Quick reference:
 //
-//	SANR_TOKEN, SANR_REFRESH_TOKEN   Sanr bearer session (authed reads, refresh)
-//	ARENA_API_KEY                    Arena x-api-key (authed reads)
-//	SCORE_TEST_WRITES=1              opt in to reversible write endpoints
-//	SCORE_TEST_DESTRUCTIVE=1         opt in to financial/irreversible writes
+//	SANR_TOKEN               Sanr bearer session (long-lived API key; authed reads/writes)
+//	ARENA_API_KEY            Arena x-api-key (authed reads)
+//	SCORE_TEST_WRITES=1      opt in to reversible write endpoints
+//	SCORE_TEST_DESTRUCTIVE=1 opt in to financial/irreversible writes
 //
-// The CLI already injects SANR_TOKEN / SANR_REFRESH_TOKEN / ARENA_API_KEY via
-// config.Resolve, so runLive needs no special wiring: setting the env var is
-// enough for the request to carry the credential.
+// The CLI already injects SANR_TOKEN / ARENA_API_KEY via config.Resolve, so
+// runLive needs no special wiring: setting the env var is enough for the
+// request to carry the credential.
 package score
 
 import (

@@ -4,14 +4,17 @@
 //   - SCORE_TEST_WRITES=1        enables the reversible writes below
 //   - SCORE_TEST_DESTRUCTIVE=1   additionally enables financial/irreversible ones
 //
-// Request bodies are supplied via environment variables (not hard-coded) so the
-// payloads always match the test stand's current schema and the suite never
-// invents a body that could corrupt data. Each test skips when its body var is
-// unset. `profile gdpr` is deliberately never invoked — see TestLiveGdprNotInvoked.
+// Where a valid body can be built safely from the OpenAPI schema (predictions
+// create needs only a real marketId + direction; profile update is a no-op flag
+// echo) the test constructs it. Financial/portfolio bodies carry account-specific
+// amounts, prices and ids, so those are supplied via env (capture a real payload
+// from the web client) rather than invented. `profile gdpr` (account deletion)
+// has no test at all — it must never run.
 package score
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -48,29 +51,38 @@ func objID(out string, fields ...string) (string, bool) {
 	return "", false
 }
 
-// profile update with a caller-supplied (ideally no-op) body.
+// profile update with a no-op body: re-send the current value of a cosmetic
+// boolean flag so the request mutates nothing observable. Body built from the
+// PutV1Issuer schema (all fields optional).
 func TestLiveWriteProfileUpdate(t *testing.T) {
 	requireWrites(t)
 	requireSanrAuth(t)
-	body := requireEnvBody(t, "SCORE_TEST_PROFILE_BODY")
+
+	_, getOut := runLive(t, "profile", "get")
+	cur := false
+	if obj, ok := decodeObject(t, getOut); ok {
+		if b, ok := obj["closedNoteHint"].(bool); ok {
+			cur = b
+		}
+	}
+	body := fmt.Sprintf(`{"closedNoteHint":%t}`, cur)
 	app, out := runLive(t, "profile", "update", "--data", body)
 	assertOK(t, app, out)
 }
 
-// portfolio distribution-save with a caller-supplied body.
-func TestLiveWriteDistributionSave(t *testing.T) {
-	requireWrites(t)
-	requireSanrAuth(t)
-	body := requireEnvBody(t, "SCORE_TEST_DISTRIBUTION_BODY")
-	app, out := runLive(t, "portfolio", "distribution-save", "--data", body)
-	assertOK(t, app, out)
-}
-
-// Prediction lifecycle: create -> get (verify) -> optional update -> close.
+// Prediction lifecycle: create -> get (verify) -> update -> close. The body is
+// built from a real market id (PostV2Predictions requires marketId + direction);
+// the prediction is closed at the end so the lifecycle cleans up after itself.
 func TestLiveWritePredictionLifecycle(t *testing.T) {
 	requireWrites(t)
 	requireSanrAuth(t)
-	body := requireEnvBody(t, "SCORE_TEST_PREDICTION_BODY")
+
+	_, mkOut := runLive(t, "markets", "list", "--take", "1")
+	marketID, ok := firstListID(mkOut, "id")
+	if !ok {
+		t.Skip("no market id available to build a prediction body")
+	}
+	body := fmt.Sprintf(`{"marketId":%q,"direction":"up"}`, marketID)
 
 	app, out := runLive(t, "predictions", "create", "--data", body)
 	assertOK(t, app, out)
@@ -79,21 +91,31 @@ func TestLiveWritePredictionLifecycle(t *testing.T) {
 	if !ok {
 		t.Fatalf("could not extract created prediction id from: %s", out)
 	}
-	t.Logf("created prediction id=%s", id)
+	t.Logf("created prediction id=%s (market %s)", id, marketID)
 
 	// Verify it is now readable.
 	getApp, getOut := runLive(t, "predictions", "get", id)
 	assertOK(t, getApp, getOut)
 
-	// Optional in-place update.
-	if upd := envOrEmpty("SCORE_TEST_PREDICTION_UPDATE_BODY"); upd != "" {
-		uApp, uOut := runLive(t, "predictions", "update", id, "--data", upd)
-		assertOK(t, uApp, uOut)
-	}
+	// Update take-profit in place (PutV2PredictionsId accepts stop/take prices).
+	uApp, uOut := runLive(t, "predictions", "update", id, "--data", `{"takeProfitPrice":1000000}`)
+	assertOK(t, uApp, uOut)
 
 	// Close it to clean up the lifecycle.
 	cApp, cOut := runLive(t, "predictions", "close", id)
 	assertOK(t, cApp, cOut)
+}
+
+// portfolio distribution-save with a caller-supplied body. The payload carries
+// asset amounts, prices and percentages that are account/portfolio specific, so
+// it is supplied via env (capture a real one from the web client) rather than
+// invented here.
+func TestLiveWriteDistributionSave(t *testing.T) {
+	requireWrites(t)
+	requireSanrAuth(t)
+	body := requireEnvBody(t, "SCORE_TEST_DISTRIBUTION_BODY")
+	app, out := runLive(t, "portfolio", "distribution-save", "--data", body)
+	assertOK(t, app, out)
 }
 
 // --- Destructive / financial writes (second opt-in) ---
@@ -150,11 +172,4 @@ func TestLiveWriteDisableNotificationsGroup(t *testing.T) {
 	body := requireEnvBody(t, "SCORE_TEST_DISABLE_NOTIFICATIONS_GROUP_BODY")
 	app, out := runLive(t, "profile", "disable-notifications-group", "--data", body)
 	assertOK(t, app, out)
-}
-
-// profile gdpr initiates account deletion and is intentionally never executed
-// by this suite. This test documents that decision and always skips; there is
-// no env flag that turns it into a real call.
-func TestLiveGdprNotInvoked(t *testing.T) {
-	t.Skip("profile gdpr is irreversible (account deletion) and is never invoked by tests")
 }
