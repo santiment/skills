@@ -73,12 +73,15 @@ Notes:
   after saving a freshly generated token, the token/account is invalid for Sanr
   — do NOT loop regenerating.** Note `backends.arena.accepted: true` is *not*
   proof the token is valid: Arena's ping does not validate the credential, so a
-  Sanr 401 is the real signal. Tell the user plainly and check with them: is the
-  Sanr account active and not deleted/anonymized (a GDPR-cleared account keeps a
-  `GDPR` timestamp in its JWT and Sanr rejects its tokens)? Did they generate the
-  token on the **correct** account via Advanced → Generate token? One
-  regeneration attempt is reasonable; a second identical 401 means escalate to
-  the user, not retry.
+  Sanr 401 is the real signal. A 401 means **Sanr does not accept the token
+  itself** (bad/expired signature, or an account Sanr won't authenticate — e.g.
+  deleted/anonymized). Do **not** attribute it to a "missing issuer/profile
+  record" or "issuer not set up": that is a different failure that surfaces as
+  exit 4 / `ISSUER_NOT_FOUND` (404) on an *accepted* token, never as a 401.
+  State the fact plainly: Sanr rejects this token. Ask the user to confirm the
+  token works in the Sanr web client (network tab) or to try a known-good,
+  active account. One regeneration attempt is reasonable; a second identical 401
+  means escalate to the user — it is an account/server matter, not a CLI fault.
 - `score auth logout` clears the saved token.
 - Treat the token as a secret: never echo it back in full, never log it, never
   put it in a shared file or a command the user did not authorize. Setup is
