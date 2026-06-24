@@ -1,6 +1,8 @@
 package score
 
 import (
+	"context"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -10,6 +12,14 @@ import (
 	"santiment.net/san-skills/internal/platform/config"
 	"santiment.net/san-skills/internal/platform/exitcode"
 )
+
+// rejectedTokenHint explains the most common cause of a configured token being
+// rejected by a backend. A Sanr 401 with Arena accepted is almost always a
+// corrupted/truncated token (long JWTs mangle easily when pasted or echoed by
+// an agent — the masked display hides middle corruption, and Arena's ping does
+// not validate the credential so it still returns 200). An actually-invalid
+// account is the less common cause.
+const rejectedTokenHint = "a configured token is rejected by at least one backend (see backends[*].httpStatus). A Sanr 401 while Arena is accepted most often means the token was corrupted or truncated on the way in (long JWTs mangle easily — re-enter it via `--token-stdin`); less often the account is invalid for Sanr. Do not loop regenerating — verify a clean re-paste first."
 
 // newAuthCmd groups the credential commands. Authentication is a single
 // long-lived API token (a Sanr JWT) that works for BOTH backends — it is sent
@@ -37,32 +47,69 @@ func newAuthCmd(app *App) *cobra.Command {
 // entry point — the token authenticates both backends.
 func newAuthLoginCmd(app *App) *cobra.Command {
 	var token string
+	var tokenStdin bool
+	var verify bool
 	c := &cobra.Command{
 		Use:   "login",
 		Short: "Save your API token (authenticates both Sanr and Arena)",
 		Long: "Generate a token at https://sanr.app/user/<username>/settings → \"Advanced\" →\n" +
-			"\"Generate token\", then run `score auth login --token <TOKEN>`. The token is\n" +
-			"written to your config file (default ~/.config/score/config.yaml, mode 0600)\n" +
-			"and reused automatically by every later command, for both backends.",
+			"\"Generate token\", then run `score auth login --token <TOKEN>` (or pipe it to\n" +
+			"`--token-stdin`). The token is written to your config file (default\n" +
+			"~/.config/score/config.yaml, mode 0600) and reused automatically by every\n" +
+			"later command, for both backends.\n\n" +
+			"Prefer `--token-stdin` for these long JWTs: it keeps the secret out of the\n" +
+			"process arguments / shell history and avoids the corruption that mangles a\n" +
+			"long token pasted onto the command line. Add `--verify` to confirm both\n" +
+			"backends actually accept the token right after saving.",
 		Args: cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			raw := token
+			if tokenStdin {
+				b, err := io.ReadAll(cmd.InOrStdin())
+				if err != nil {
+					return app.fail(err)
+				}
+				raw = string(b)
+			}
 			// Tolerate paste noise: surrounding whitespace and a leading "Bearer ".
-			tok := strings.TrimPrefix(strings.TrimSpace(token), "Bearer ")
-			tok = strings.TrimSpace(tok)
+			tok := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "Bearer "))
 			if tok == "" {
-				return app.fail(usageError("--token is required; generate one at https://sanr.app/user/<username>/settings → Advanced → Generate token"))
+				return app.fail(usageError("provide the token via --token <TOKEN> or piped to --token-stdin; generate one at https://sanr.app/user/<username>/settings → Advanced → Generate token"))
 			}
 			if err := config.SaveTokens(app.settings.ConfigPath, app.settings.ProfileName, tok); err != nil {
 				return app.fail(err)
 			}
-			return app.printer.EmitValue(map[string]any{
+			out := map[string]any{
 				"saved":   true,
 				"profile": app.settings.ProfileName,
 				"config":  app.settings.ConfigPath,
-			})
+			}
+
+			if verify {
+				// Verify the token we just saved (not whatever was resolved at
+				// startup): inject it so the backend clients use it. This catches
+				// a token that was corrupted/truncated on the way in immediately,
+				// instead of letting later commands fail with a confusing 401.
+				app.settings.SanrToken = tok
+				if app.settings.ArenaAPIKey == "" {
+					app.settings.ArenaAPIKey = tok
+				}
+				sanrHealth, arenaHealth := verifyBackends(app.ctx(cmd), app)
+				out["backends"] = backendsResult(sanrHealth, arenaHealth)
+				accepted := sanrHealth.OK && arenaHealth.OK
+				out["authorized"] = accepted
+				if !accepted {
+					out["hint"] = rejectedTokenHint
+					app.exitCode = exitcode.Auth
+				}
+			}
+
+			return app.printer.EmitValue(out)
 		},
 	}
-	c.Flags().StringVar(&token, "token", "", "Score API token from your Sanr settings page (required)")
+	c.Flags().StringVar(&token, "token", "", "Score API token from your Sanr settings page")
+	c.Flags().BoolVar(&tokenStdin, "token-stdin", false, "read the token from stdin (recommended for long tokens — avoids leaking/mangling it on the command line)")
+	c.Flags().BoolVar(&verify, "verify", false, "after saving, ping both backends to confirm the token is actually accepted")
 	return c
 }
 
@@ -103,40 +150,14 @@ func newAuthStatusCmd(app *App) *cobra.Command {
 			// report per-backend acceptance, so a token accepted by one backend
 			// but rejected by the other is visible instead of hidden behind a
 			// single misleading "authorized" flag.
-			ctx := app.ctx(cmd)
-			sanrHealth := probe(func() (int, error) {
-				cl, err := app.sanr()
-				if err != nil {
-					return 0, err
-				}
-				resp, err := cl.GetV1PingWithResponse(ctx)
-				if err != nil {
-					return 0, err
-				}
-				return resp.StatusCode(), nil
-			})
-			arenaHealth := probe(func() (int, error) {
-				cl, err := app.arena()
-				if err != nil {
-					return 0, err
-				}
-				resp, err := cl.PingControllerPingWithResponse(ctx)
-				if err != nil {
-					return 0, err
-				}
-				return resp.StatusCode(), nil
-			})
-
-			out["backends"] = map[string]any{
-				sanr.Backend:  map[string]any{"accepted": sanrHealth.OK, "httpStatus": sanrHealth.HTTPStatus},
-				arena.Backend: map[string]any{"accepted": arenaHealth.OK, "httpStatus": arenaHealth.HTTPStatus},
-			}
+			sanrHealth, arenaHealth := verifyBackends(app.ctx(cmd), app)
+			out["backends"] = backendsResult(sanrHealth, arenaHealth)
 			authorized := tokenConfigured && sanrHealth.OK && arenaHealth.OK
 			out["authorized"] = authorized
 			if tokenConfigured && !authorized {
 				// A configured token that a backend rejects is an auth failure;
 				// surface it via the stable exit-code contract so scripts branch.
-				out["hint"] = "a configured token is rejected by at least one backend (see backends[*].httpStatus); if one backend accepts it and another returns 401, the token/account is invalid for the rejecting backend — do not loop on regeneration"
+				out["hint"] = rejectedTokenHint
 				app.exitCode = exitcode.Auth
 			}
 
@@ -161,6 +182,43 @@ func newAuthLogoutCmd(app *App) *cobra.Command {
 				"profile":   app.settings.ProfileName,
 			})
 		},
+	}
+}
+
+// verifyBackends pings both backends with the currently-resolved credential and
+// returns their health. Shared by `auth status --verify` and `auth login
+// --verify`; reuses the same ping endpoints (and `probe`) as `health`.
+func verifyBackends(ctx context.Context, app *App) (sanrHealth, arenaHealth backendHealth) {
+	sanrHealth = probe(func() (int, error) {
+		cl, err := app.sanr()
+		if err != nil {
+			return 0, err
+		}
+		resp, err := cl.GetV1PingWithResponse(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return resp.StatusCode(), nil
+	})
+	arenaHealth = probe(func() (int, error) {
+		cl, err := app.arena()
+		if err != nil {
+			return 0, err
+		}
+		resp, err := cl.PingControllerPingWithResponse(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return resp.StatusCode(), nil
+	})
+	return sanrHealth, arenaHealth
+}
+
+// backendsResult renders per-backend token acceptance for JSON output.
+func backendsResult(sanrHealth, arenaHealth backendHealth) map[string]any {
+	return map[string]any{
+		sanr.Backend:  map[string]any{"accepted": sanrHealth.OK, "httpStatus": sanrHealth.HTTPStatus},
+		arena.Backend: map[string]any{"accepted": arenaHealth.OK, "httpStatus": arenaHealth.HTTPStatus},
 	}
 }
 

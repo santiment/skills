@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"santiment.net/san-skills/internal/platform/config"
@@ -36,6 +37,47 @@ func runCmd(t *testing.T, args ...string) (*App, string) {
 	root.SetErr(&buf)
 	_ = root.Execute()
 	return app, buf.String()
+}
+
+// runCmdStdin is runCmd with stdin wired to stdinData, for `--token-stdin`.
+func runCmdStdin(t *testing.T, stdinData string, args ...string) (*App, string) {
+	t.Helper()
+	app := &App{}
+	var buf bytes.Buffer
+	app.printer = &output.Printer{JSON: true, Out: &buf, Err: &buf}
+	root := newRootCmd(app)
+	root.SetArgs(args)
+	root.SetIn(strings.NewReader(stdinData))
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+	_ = root.Execute()
+	return app, buf.String()
+}
+
+// auth login reads the token from stdin (offline: no --verify), tolerating a
+// leading "Bearer " and surrounding whitespace. This is the recommended path
+// for long JWTs that would be mangled or leaked on the command line.
+func TestAuthLoginTokenStdin(t *testing.T) {
+	t.Setenv(config.EnvSanrToken, "")
+	t.Setenv(config.EnvArenaAPIKey, "")
+	cfg := filepath.Join(t.TempDir(), "config.yaml")
+
+	app, out := runCmdStdin(t, "  Bearer jwt-from-stdin\n", "--config", cfg, "auth", "login", "--token-stdin")
+	if app.exitCode != exitcode.OK {
+		t.Fatalf("login --token-stdin exit=%d, out=%s", app.exitCode, out)
+	}
+	if obj, _ := decodeObject(t, out); obj["saved"] != true {
+		t.Fatalf("login --token-stdin must report saved:true, got %s", out)
+	}
+
+	_, out = runCmd(t, "--config", cfg, "auth", "status")
+	obj, _ := decodeObject(t, out)
+	if obj["tokenConfigured"] != true {
+		t.Errorf("token from stdin not persisted: %s", out)
+	}
+	if tok, _ := obj["token"].(string); tok == "" || tok == "jwt-from-stdin" {
+		t.Errorf("token should be present and masked, got %q", tok)
+	}
 }
 
 // auth login persists the API token into the profile, and auth status reads it

@@ -52,15 +52,21 @@ the user through obtaining a token — do not give up or loop:
    `https://sanr.app/user/<username>/settings`
 3. **Explain**: on that page open the **"Advanced"** section and click
    **"Generate token"** to create an API key, then paste the token back to you.
-4. **Save it** once — this authenticates both backends and persists across runs:
+4. **Save it via stdin** and verify in one step — this authenticates both
+   backends and persists across runs:
    ```
-   score auth login --token "<TOKEN>"
+   printf '%s' "<TOKEN>" | score auth login --token-stdin --verify --json
    ```
-   (login tolerates a leading `Bearer ` or surrounding spaces.) For a one-off
-   shell session you can instead `export SANR_TOKEN="<TOKEN>"`.
-5. **Confirm it is actually accepted** (not merely saved):
-   `score auth status --verify --json`. Check `backends.sanr.accepted` and
-   `backends.arena.accepted` are both `true` (and `authorized: true`, exit 0).
+   ⚠️ **Use `--token-stdin`, not `--token "<TOKEN>"`.** These JWTs are ~2 KB;
+   pasting one as a command-line argument easily mangles it (a single altered
+   character makes Sanr reject it with 401) and leaks it into process args /
+   shell history. Piping via stdin avoids both. `--verify` then pings both
+   backends so a corrupted paste fails **here** (exit 3) instead of surfacing as
+   a confusing 401 later. (login tolerates a leading `Bearer ` or surrounding
+   spaces.) For a one-off shell session you can instead `export SANR_TOKEN="<TOKEN>"`.
+5. **Confirm acceptance:** the `--verify` above prints `backends.sanr.accepted`
+   and `backends.arena.accepted` — both must be `true` (with `authorized: true`,
+   exit 0). If you saved without `--verify`, run `score auth status --verify --json`.
    ⚠️ Plain `score auth status` (without `--verify`) reports only
    `tokenConfigured` — `"authorized": true` there means *a token is saved*, NOT
    that any backend accepts it. Always verify.
@@ -69,19 +75,20 @@ Notes:
 - `score auth login` writes the token to the config file (default
   `~/.config/score/config.yaml`, mode 0600); every later command reads it
   automatically. No need to pass `--token` again or set `ARENA_API_KEY`.
-- **If `--verify` shows `backends.sanr.accepted: false` (httpStatus 401) right
-  after saving a freshly generated token, the token/account is invalid for Sanr
-  — do NOT loop regenerating.** Note `backends.arena.accepted: true` is *not*
-  proof the token is valid: Arena's ping does not validate the credential, so a
-  Sanr 401 is the real signal. A 401 means **Sanr does not accept the token
-  itself** (bad/expired signature, or an account Sanr won't authenticate — e.g.
-  deleted/anonymized). Do **not** attribute it to a "missing issuer/profile
-  record" or "issuer not set up": that is a different failure that surfaces as
-  exit 4 / `ISSUER_NOT_FOUND` (404) on an *accepted* token, never as a 401.
-  State the fact plainly: Sanr rejects this token. Ask the user to confirm the
-  token works in the Sanr web client (network tab) or to try a known-good,
-  active account. One regeneration attempt is reasonable; a second identical 401
-  means escalate to the user — it is an account/server matter, not a CLI fault.
+- **If `--verify` shows `backends.sanr.accepted: false` (httpStatus 401) with
+  `backends.arena.accepted: true`, the #1 cause is a corrupted/truncated token,
+  not a bad account.** These JWTs are ~2 KB; one altered character invalidates
+  the signature → Sanr 401, while Arena's ping does not validate the credential
+  so it still returns 200 (Arena being "accepted" is *not* proof the token is
+  good). The masked `token` field (`eyJ***5k`) hides middle corruption, so it
+  looks fine. **First fix: re-enter the token via stdin**
+  (`printf '%s' "<TOKEN>" | score auth login --token-stdin --verify --json`) —
+  have the user re-copy it cleanly. Only if a verifiably clean token still gives
+  Sanr 401 is the token/account itself invalid (bad/expired signature, or an
+  account Sanr won't authenticate). Do **not** attribute a 401 to a "missing
+  issuer/profile record": that is a different failure (exit 4 / `ISSUER_NOT_FOUND`,
+  404, on an *accepted* token). Do not loop regenerating — re-paste, verify,
+  then escalate to the user.
 - `score auth logout` clears the saved token.
 - Treat the token as a secret: never echo it back in full, never log it, never
   put it in a shared file or a command the user did not authorize. Setup is
@@ -128,7 +135,8 @@ score contracts list --json
 
 Auth (one token for both backends; no refresh flow):
 ```
-score auth login --token "$TOKEN"     # save the token (authenticates Sanr + Arena), persists to config
+printf '%s' "$TOKEN" | score auth login --token-stdin --verify --json  # PREFERRED: save + confirm acceptance; stdin avoids mangling/leaking the long token
+score auth login --token "$TOKEN"     # alternative; risks corrupting/leaking a ~2KB token on the command line
 score auth status --json              # offline: shows tokenConfigured (NOT acceptance)
 score auth status --verify --json     # online: pings both backends → backends.{sanr,arena}.accepted
 score auth logout                     # remove the saved token
@@ -156,7 +164,7 @@ echo '{"...":"..."}' | score portfolio deposit --data-file - --json
 - Always branch on the exit code before parsing stdout.
 
 ## FAILURE HANDLING
-- Exit 3 (auth): no token, or it is expired/revoked/invalid → run the GETTING THE API TOKEN flow (ask username → `https://sanr.app/user/<username>/settings` → Advanced → Generate token → `score auth login --token <TOKEN>`), then **confirm with `score auth status --verify --json`**. One token covers both backends. Do not retry blindly. **If a freshly generated token still gives `backends.sanr.accepted:false` (401) on verify, the Sanr account itself is invalid (deleted/anonymized/GDPR-cleared, or token from the wrong account) — escalate to the user; do not loop regenerating.**
+- Exit 3 (auth): no token, or it is corrupted/expired/invalid → run the GETTING THE API TOKEN flow, saving via `printf '%s' "<TOKEN>" | score auth login --token-stdin --verify --json`. One token covers both backends. Do not retry blindly. **If verify shows `backends.sanr.accepted:false` (401) with Arena accepted, suspect a mangled token first — have the user re-copy it and re-save via `--token-stdin`. Only if a cleanly re-entered token still gives Sanr 401 is the account itself invalid — then escalate to the user; do not loop regenerating.**
 - Exit 4 (not found): the id/username/address does not exist → re-list to find a valid identifier instead of retrying. Note: portfolio commands can return `ISSUER_NOT_FOUND` for an account that simply has no portfolio yet (e.g. a brand-new or GDPR-cleared account) — that is account state, not a CLI fault.
 - Exit 7 (network/timeout): backend unreachable → run `score health --json` to localize the failure; raise `--timeout` for slow calls; retry with backoff a limited number of times.
 - Exit 5 (rate limited): back off and retry after a short delay; do not hammer.
