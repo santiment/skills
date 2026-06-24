@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"santiment.net/san-skills/internal/platform/config"
@@ -154,6 +155,29 @@ func assertAuthedRead(t *testing.T, app *App, out string) {
 		}
 	}
 	t.Fatalf("authed read failed: exit=%d\noutput: %s", app.exitCode, out)
+}
+
+// assertSoftRead accepts a successful read that returns either valid JSON or an
+// empty body (some endpoints reply 200 with no content when there is no data for
+// the requested entity), or a recognized "no data" business error (reported as a
+// skip). Used for endpoints whose data presence depends on the entity (e.g.
+// Hyperliquid stats for an issuer that does not trade there).
+func assertSoftRead(t *testing.T, app *App, out string) {
+	t.Helper()
+	if app.exitCode == exitcode.OK {
+		if strings.TrimSpace(out) != "" {
+			assertJSON(t, out)
+		}
+		return
+	}
+	if obj, ok := decodeObject(t, out); ok {
+		if e, ok := obj["error"].(map[string]any); ok {
+			if msg, _ := e["message"].(string); knownEmptyAccountMsgs[msg] {
+				t.Skipf("token valid but entity has no data here: %s", msg)
+			}
+		}
+	}
+	t.Fatalf("read failed: exit=%d\noutput: %s", app.exitCode, out)
 }
 
 // assertHasKey fails unless out is a JSON object containing key.

@@ -83,7 +83,6 @@ func TestLiveReadArena(t *testing.T) {
 	requireArenaAuth(t)
 	runReadCases(t, []readCase{
 		{name: "issuers-list", args: []string{"issuers", "list", "--limit", "2"}, dataKey: "data"},
-		{name: "issuers-hyperliquid", args: []string{"issuers", "hyperliquid"}},
 		{name: "stakes", args: []string{"stakes", "--limit", "2"}},
 		{name: "events", args: []string{"events", "--limit", "2"}},
 		{name: "contracts-list", args: []string{"contracts", "list"}},
@@ -141,13 +140,24 @@ func TestLiveReadDynamicArena(t *testing.T) {
 	if !ok {
 		t.Skip("no issuer id in Arena list response")
 	}
+	// issuers get returns the issuer record directly.
 	runReadCases(t, []readCase{
 		{name: "issuers-get", args: []string{"issuers", "get", id}},
-		{name: "issuers-metrics", args: []string{"issuers", "metrics", id}},
-		{name: "issuers-positions", args: []string{"issuers", "positions", id, "--limit", "2"}},
-		{name: "issuers-trades", args: []string{"issuers", "trades", id, "--limit", "2"}},
-		{name: "issuers-snapshots", args: []string{"issuers", "snapshots", id, "--limit", "2"}},
 	})
+	// Hyperliquid sub-endpoints (issuers hyperliquid <sub> <id>) only have data
+	// for issuers that actually trade on Hyperliquid, so tolerate empty/no-data.
+	hl := []readCase{
+		{name: "hl-metrics", args: []string{"issuers", "hyperliquid", "metrics", id}},
+		{name: "hl-positions", args: []string{"issuers", "hyperliquid", "positions", id, "--limit", "2"}},
+		{name: "hl-trades", args: []string{"issuers", "hyperliquid", "trades", id, "--limit", "2"}},
+		{name: "hl-snapshots", args: []string{"issuers", "hyperliquid", "snapshots", id, "--limit", "2"}},
+	}
+	for _, tc := range hl {
+		t.Run(tc.name, func(t *testing.T) {
+			app, out := runLive(t, tc.args...)
+			assertSoftRead(t, app, out)
+		})
+	}
 
 	_, contractsOut := runLive(t, "contracts", "list")
 	if addr, ok := listField(contractsOut, "address", "contractAddress", "contract_address"); ok {
