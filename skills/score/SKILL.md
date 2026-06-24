@@ -43,8 +43,8 @@ result. Never make the user hunt for flags or backends — that is your job.
 
 ## GETTING THE API TOKEN (guide the user through this)
 A command failed with exit 3 (auth), or you know it needs auth and no token is
-configured (`score auth status --json` shows `"authorized": false`). Walk the
-user through obtaining a token — do not give up or loop:
+configured (`score auth status --json` shows `"tokenConfigured": false`). Walk
+the user through obtaining a token — do not give up or loop:
 
 1. **Ask for their Sanr username** if you do not already know it (it is the
    handle on their Sanr profile, e.g. `agent_phoenix`).
@@ -58,12 +58,27 @@ user through obtaining a token — do not give up or loop:
    ```
    (login tolerates a leading `Bearer ` or surrounding spaces.) For a one-off
    shell session you can instead `export SANR_TOKEN="<TOKEN>"`.
-5. **Confirm** it took effect: `score auth status --json` → `"authorized": true`.
+5. **Confirm it is actually accepted** (not merely saved):
+   `score auth status --verify --json`. Check `backends.sanr.accepted` and
+   `backends.arena.accepted` are both `true` (and `authorized: true`, exit 0).
+   ⚠️ Plain `score auth status` (without `--verify`) reports only
+   `tokenConfigured` — `"authorized": true` there means *a token is saved*, NOT
+   that any backend accepts it. Always verify.
 
 Notes:
 - `score auth login` writes the token to the config file (default
   `~/.config/score/config.yaml`, mode 0600); every later command reads it
   automatically. No need to pass `--token` again or set `ARENA_API_KEY`.
+- **If `--verify` shows `backends.sanr.accepted: false` (httpStatus 401) right
+  after saving a freshly generated token, the token/account is invalid for Sanr
+  — do NOT loop regenerating.** Note `backends.arena.accepted: true` is *not*
+  proof the token is valid: Arena's ping does not validate the credential, so a
+  Sanr 401 is the real signal. Tell the user plainly and check with them: is the
+  Sanr account active and not deleted/anonymized (a GDPR-cleared account keeps a
+  `GDPR` timestamp in its JWT and Sanr rejects its tokens)? Did they generate the
+  token on the **correct** account via Advanced → Generate token? One
+  regeneration attempt is reasonable; a second identical 401 means escalate to
+  the user, not retry.
 - `score auth logout` clears the saved token.
 - Treat the token as a secret: never echo it back in full, never log it, never
   put it in a shared file or a command the user did not authorize. Setup is
@@ -71,7 +86,7 @@ Notes:
 
 ## PROCESS
 1. Verify connectivity: `score health --json` (pings both backends; expect exit 0).
-2. Ensure credentials if the command needs them. If `score auth status --json` shows `"authorized": false`, run the GETTING THE API TOKEN flow. A single `score auth login` covers both backends.
+2. Ensure credentials if the command needs them. If `score auth status --json` shows `"tokenConfigured": false`, run the GETTING THE API TOKEN flow. To check a saved token actually works, use `score auth status --verify --json` (or `score health --json`) — `"authorized": true` from plain status only means a token is *saved*. A single `score auth login` covers both backends.
 3. Discover the exact command/flags when unsure: `score describe --json` (full catalog) or `score <group> --help`. Do not guess flags.
 4. Run the command with `--json`. Pass list filters via `--take/--skip/--sort/--filter` (Sanr) or `--limit/--offset` (Arena), and any other query parameter via repeatable `--param key=value`.
 5. For write operations, build the JSON body from the schema (`score <command> --help` / `describe`) and pass it via `--data '<json>'` or `--data-file <path|->`. Confirm state-changing actions with the user first.
@@ -111,7 +126,8 @@ score contracts list --json
 Auth (one token for both backends; no refresh flow):
 ```
 score auth login --token "$TOKEN"     # save the token (authenticates Sanr + Arena), persists to config
-score auth status --json              # check "authorized": true
+score auth status --json              # offline: shows tokenConfigured (NOT acceptance)
+score auth status --verify --json     # online: pings both backends → backends.{sanr,arena}.accepted
 score auth logout                     # remove the saved token
 # Alternative for a one-off session instead of `login`:
 export SANR_TOKEN="$TOKEN"
@@ -137,7 +153,7 @@ echo '{"...":"..."}' | score portfolio deposit --data-file - --json
 - Always branch on the exit code before parsing stdout.
 
 ## FAILURE HANDLING
-- Exit 3 (auth): no token, or it is expired/revoked → run the GETTING THE API TOKEN flow (ask username → `https://sanr.app/user/<username>/settings` → Advanced → Generate token → `score auth login --token <TOKEN>`). One token covers both backends. Do not retry blindly.
+- Exit 3 (auth): no token, or it is expired/revoked/invalid → run the GETTING THE API TOKEN flow (ask username → `https://sanr.app/user/<username>/settings` → Advanced → Generate token → `score auth login --token <TOKEN>`), then **confirm with `score auth status --verify --json`**. One token covers both backends. Do not retry blindly. **If a freshly generated token still gives `backends.sanr.accepted:false` (401) on verify, the Sanr account itself is invalid (deleted/anonymized/GDPR-cleared, or token from the wrong account) — escalate to the user; do not loop regenerating.**
 - Exit 4 (not found): the id/username/address does not exist → re-list to find a valid identifier instead of retrying. Note: portfolio commands can return `ISSUER_NOT_FOUND` for an account that simply has no portfolio yet (e.g. a brand-new or GDPR-cleared account) — that is account state, not a CLI fault.
 - Exit 7 (network/timeout): backend unreachable → run `score health --json` to localize the failure; raise `--timeout` for slow calls; retry with backoff a limited number of times.
 - Exit 5 (rate limited): back off and retry after a short delay; do not hammer.
@@ -147,6 +163,8 @@ echo '{"...":"..."}' | score portfolio deposit --data-file - --json
 - **No credentials yet (first run):** don't fail — start the GETTING THE API TOKEN flow. Ask for the username, hand over the settings link, explain Advanced → Generate token.
 - **User doesn't know their username:** it's the handle in their Sanr profile URL (`sanr.app/user/<username>`). Ask them to open sanr.app while logged in and read it from the address bar.
 - **Token pasted with noise:** `score auth login` already trims surrounding whitespace and a leading `Bearer `; still strip stray quotes from the user's paste.
+- **`auth status` says `authorized: true` but commands return 401:** plain `auth status` is offline — `authorized: true` only means a token is *saved*, not accepted. Run `score auth status --verify --json` (or `score health --json`): if `backends.sanr.accepted: false` (401), the token is rejected by Sanr. A present-but-rejected token poisons even *public* Sanr reads (e.g. `markets list` returns 401 with the bad token but works with none) — so this is the token, not the endpoint. Don't loop: tell the user their Sanr token/account is invalid (see GETTING THE API TOKEN notes).
+- **Sanr 401 while Arena is 200 (in `health`/`--verify`):** this split means the token is rejected by Sanr specifically. `arena.accepted: true` is **not** confirmation the token is good — Arena's ping does not validate the credential. Trust the Sanr result; do not conclude "Arena works, so the token is fine."
 - **Arena command returns 401/403:** the token isn't configured. Run `score auth login` (it covers Arena too); you do not need a separate `ARENA_API_KEY` unless Arena uses a different key.
 - **`pairs favorites` returns 401 unauthenticated:** it requires the token even though other `pairs` subcommands are public.
 - **`pairs aggregated` returns 400 `WRONG_SORT_OR_FILTER_FIELD`:** it needs a valid, non-empty `--filter` (filter JSON without outer braces, e.g. `--filter '"asset":"BTC"'`); an empty/unknown field is rejected.

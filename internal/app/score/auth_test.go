@@ -105,9 +105,18 @@ func TestAuthStatusShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("status output not a JSON object: %s", out)
 	}
-	for _, key := range []string{"profile", "config", "sanrBaseURL", "arenaBaseURL", "token", "authorized"} {
+	for _, key := range []string{"profile", "config", "sanrBaseURL", "arenaBaseURL", "token", "authorized", "tokenConfigured", "verified"} {
 		if _, ok := obj[key]; !ok {
 			t.Errorf("status missing key %q: %s", key, out)
 		}
+	}
+	// Plain `auth status` is an offline check: it must never claim verification.
+	// authorized here reflects only tokenConfigured (a present token), so an
+	// agent must treat authorized:true as "saved", not "accepted".
+	if obj["verified"] != false {
+		t.Errorf("offline status must report verified:false, got %v", obj["verified"])
+	}
+	if obj["authorized"] != obj["tokenConfigured"] {
+		t.Errorf("offline authorized must equal tokenConfigured, got authorized=%v tokenConfigured=%v", obj["authorized"], obj["tokenConfigured"])
 	}
 }
