@@ -44,6 +44,27 @@ func TestRetryOn503ThenSuccess(t *testing.T) {
 	}
 }
 
+func TestRetryOn429ThenSuccess(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&calls, 1) < 2 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	resp := doGet(t, New(Options{MaxRetries: 3}), srv.URL)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("want 200 after 429 retry, got %d", resp.StatusCode)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Errorf("want 2 attempts, got %d", got)
+	}
+}
+
 func TestNoRetryOnSuccess(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -48,6 +48,53 @@ profiles:
 	}
 }
 
+func TestResolveProfileSelection(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	yaml := `current_profile: alpha
+profiles:
+  alpha:
+    sanr_token: alpha-token
+  beta:
+    sanr_token: beta-token
+`
+	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// No selector -> current_profile (alpha).
+	s, err := Resolve(Overrides{ConfigPath: cfgPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ProfileName != "alpha" || s.SanrToken != "alpha-token" {
+		t.Errorf("default selection: got profile=%q token=%q", s.ProfileName, s.SanrToken)
+	}
+
+	// Flag selects a different profile.
+	s, _ = Resolve(Overrides{ConfigPath: cfgPath, Profile: "beta"})
+	if s.ProfileName != "beta" || s.SanrToken != "beta-token" {
+		t.Errorf("flag selection: got profile=%q token=%q", s.ProfileName, s.SanrToken)
+	}
+
+	// Env selects a profile when no flag is given.
+	t.Setenv(EnvProfile, "beta")
+	s, _ = Resolve(Overrides{ConfigPath: cfgPath})
+	if s.ProfileName != "beta" || s.SanrToken != "beta-token" {
+		t.Errorf("env selection: got profile=%q token=%q", s.ProfileName, s.SanrToken)
+	}
+}
+
+func TestLoadParseError(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "bad.yaml")
+	if err := os.WriteFile(cfgPath, []byte("current_profile: [not, a, scalar\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(cfgPath); err == nil {
+		t.Error("expected a parse error for malformed YAML")
+	}
+}
+
 func TestResolveMissingFileUsesDefaults(t *testing.T) {
 	s, err := Resolve(Overrides{ConfigPath: filepath.Join(t.TempDir(), "absent.yaml")})
 	if err != nil {
