@@ -1,46 +1,56 @@
 package score
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"santiment.net/san-skills/internal/clients/sanr"
 	"santiment.net/san-skills/internal/platform/config"
 	"santiment.net/san-skills/internal/platform/exitcode"
 )
 
+// newAuthCmd groups the credential commands. Authentication is a single
+// long-lived API token (a Sanr JWT) that works for BOTH backends — it is sent
+// as the Sanr bearer token and as the Arena x-api-key. There is exactly one way
+// in: `auth login --token <TOKEN>`.
 func newAuthCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Manage Santiment Score authentication (token cache, login)",
-		Long: "The CLI authenticates with a single long-lived Sanr JWT (~5y). The same\n" +
-			"token also authenticates Arena (sent as x-api-key), so one credential\n" +
-			"covers both backends. Provide it via --token / SANR_TOKEN / `auth set-token`\n" +
-			"(set ARENA_API_KEY to the same value, or rely on --api-key). `auth login`\n" +
-			"performs the wallet-signature exchange and best-effort caches the token\n" +
-			"returned via Set-Cookie.",
+		Short: "Manage the Santiment Score API token (login, status, logout)",
+		Long: "Authentication is a single long-lived API token that works for both backends\n" +
+			"(Sanr and Arena). Generate one at https://sanr.app/user/<username>/settings →\n" +
+			"\"Advanced\" → \"Generate token\", then run `score auth login --token <TOKEN>`.\n" +
+			"The token is cached in your config file and reused automatically by every\n" +
+			"later command — no need to pass it again or set it per backend.",
 	}
 	cmd.AddCommand(
-		newAuthSetTokenCmd(app),
-		newAuthStatusCmd(app),
 		newAuthLoginCmd(app),
+		newAuthStatusCmd(app),
+		newAuthLogoutCmd(app),
 	)
 	return cmd
 }
 
-func newAuthSetTokenCmd(app *App) *cobra.Command {
+// newAuthLoginCmd caches the API token into the active profile. This is the only
+// entry point — the token authenticates both backends.
+func newAuthLoginCmd(app *App) *cobra.Command {
 	var token string
 	c := &cobra.Command{
-		Use:   "set-token",
-		Short: "Cache the Santiment Score API token (works for both backends) into the active profile",
-		Args:  cobra.NoArgs,
+		Use:   "login",
+		Short: "Save your API token (authenticates both Sanr and Arena)",
+		Long: "Generate a token at https://sanr.app/user/<username>/settings → \"Advanced\" →\n" +
+			"\"Generate token\", then run `score auth login --token <TOKEN>`. The token is\n" +
+			"written to your config file (default ~/.config/score/config.yaml, mode 0600)\n" +
+			"and reused automatically by every later command, for both backends.",
+		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if token == "" {
-				return app.fail(usageError("--token is required"))
+			// Tolerate paste noise: surrounding whitespace and a leading "Bearer ".
+			tok := strings.TrimPrefix(strings.TrimSpace(token), "Bearer ")
+			tok = strings.TrimSpace(tok)
+			if tok == "" {
+				return app.fail(usageError("--token is required; generate one at https://sanr.app/user/<username>/settings → Advanced → Generate token"))
 			}
-			if err := config.SaveTokens(app.settings.ConfigPath, app.settings.ProfileName, token); err != nil {
+			if err := config.SaveTokens(app.settings.ConfigPath, app.settings.ProfileName, tok); err != nil {
 				return app.fail(err)
 			}
 			return app.printer.EmitValue(map[string]any{
@@ -50,88 +60,44 @@ func newAuthSetTokenCmd(app *App) *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&token, "token", "", "Santiment Score API token (JWT) to cache (required)")
+	c.Flags().StringVar(&token, "token", "", "Score API token from your Sanr settings page (required)")
 	return c
 }
 
 func newAuthStatusCmd(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show the resolved profile, base URLs, and which credentials are present",
+		Short: "Show the resolved profile, base URLs, and whether a token is configured",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			s := app.settings
 			return app.printer.EmitValue(map[string]any{
-				"profile":         s.ProfileName,
-				"config":          s.ConfigPath,
-				"sanrBaseURL":     s.SanrBaseURL,
-				"arenaBaseURL":    s.ArenaBaseURL,
-				"sanrToken":       masked(s.SanrToken),
-				"arenaApiKey":     masked(s.ArenaAPIKey),
-				"sanrAuthorized":  s.SanrToken != "",
-				"arenaAuthorized": s.ArenaAPIKey != "",
+				"profile":      s.ProfileName,
+				"config":       s.ConfigPath,
+				"sanrBaseURL":  s.SanrBaseURL,
+				"arenaBaseURL": s.ArenaBaseURL,
+				"token":        masked(s.SanrToken),
+				"authorized":   s.SanrToken != "" || s.ArenaAPIKey != "",
 			})
 		},
 	}
 }
 
-func newAuthLoginCmd(app *App) *cobra.Command {
-	var original, signed string
-	var accessExpiresIn int
-	c := &cobra.Command{
-		Use:   "login",
-		Short: "Exchange a signed wallet message for a session, caching any returned token",
+func newAuthLogoutCmd(app *App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "logout",
+		Short: "Remove the cached token from the active profile",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if original == "" || signed == "" {
-				return app.fail(usageError("--original-message and --signed-message are required"))
-			}
-			client, err := app.sanr()
-			if err != nil {
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if err := config.SaveTokens(app.settings.ConfigPath, app.settings.ProfileName, ""); err != nil {
 				return app.fail(err)
 			}
-			body := sanr.PostV1AuthJSONRequestBody{OriginalMessage: original, SignedMessage: signed}
-			if accessExpiresIn > 0 {
-				body.AccessTokenExpiresIn = &accessExpiresIn
-			}
-			resp, err := client.PostV1AuthWithResponse(app.ctx(cmd), body)
-			if err != nil {
-				return app.fail(err)
-			}
-			if resp.StatusCode() >= 400 {
-				return app.emit(sanr.Backend, resp.StatusCode(), resp.Body)
-			}
-			if tok := tokenFromCookies(resp.HTTPResponse); tok != "" {
-				if err := config.SaveTokens(app.settings.ConfigPath, app.settings.ProfileName, tok); err != nil {
-					return app.fail(err)
-				}
-			}
-			return app.emit(sanr.Backend, resp.StatusCode(), resp.Body)
+			return app.printer.EmitValue(map[string]any{
+				"loggedOut": true,
+				"profile":   app.settings.ProfileName,
+			})
 		},
 	}
-	c.Flags().StringVar(&original, "original-message", "", "the original message that was signed (required)")
-	c.Flags().StringVar(&signed, "signed-message", "", "the wallet signature of the message (required)")
-	c.Flags().IntVar(&accessExpiresIn, "access-expires", 0, "access token lifetime in seconds")
-	return c
-}
-
-// tokenFromCookies best-effort extracts an access token from Set-Cookie headers,
-// matching common cookie names.
-func tokenFromCookies(resp *http.Response) string {
-	if resp == nil {
-		return ""
-	}
-	for _, ck := range resp.Cookies() {
-		name := strings.ToLower(ck.Name)
-		if strings.Contains(name, "refresh") {
-			continue
-		}
-		if strings.Contains(name, "access") || name == "token" ||
-			strings.Contains(name, "jwt") || strings.Contains(name, "auth") {
-			return ck.Value
-		}
-	}
-	return ""
 }
 
 func masked(s string) string {

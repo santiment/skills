@@ -114,6 +114,12 @@ func Resolve(ov Overrides) (*Settings, error) {
 		prof = &Profile{}
 	}
 
+	// One token authenticates both backends: it is sent as the Sanr bearer token
+	// and as the Arena x-api-key. So the Arena key falls back to the Sanr token
+	// when no Arena-specific value is set — a single `auth login` (or SANR_TOKEN)
+	// is enough for every command. An explicit --api-key / ARENA_API_KEY still
+	// overrides, for the rare case the two differ.
+	sanrToken := firstNonEmpty(ov.Token, os.Getenv(EnvSanrToken), prof.SanrToken)
 	s := &Settings{
 		ProfileName: profileName,
 		ConfigPath:  path,
@@ -121,8 +127,8 @@ func Resolve(ov Overrides) (*Settings, error) {
 			prof.SanrBaseURL, DefaultSanrBaseURL),
 		ArenaBaseURL: firstNonEmpty(ov.ArenaBaseURL, os.Getenv(EnvArenaBaseURL),
 			prof.ArenaBaseURL, DefaultArenaBaseURL),
-		SanrToken:   firstNonEmpty(ov.Token, os.Getenv(EnvSanrToken), prof.SanrToken),
-		ArenaAPIKey: firstNonEmpty(ov.APIKey, os.Getenv(EnvArenaAPIKey), prof.ArenaAPIKey),
+		SanrToken:   sanrToken,
+		ArenaAPIKey: firstNonEmpty(ov.APIKey, os.Getenv(EnvArenaAPIKey), prof.ArenaAPIKey, sanrToken),
 	}
 	return s, nil
 }

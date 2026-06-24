@@ -52,10 +52,18 @@ task build
 ./bin/score markets list --take 5 --json
 ```
 
-Credentials (only for authenticated endpoints) come from flags, environment
-(`SANR_TOKEN`, `ARENA_API_KEY`, `SCORE_*`), or `~/.config/score/config.yaml`,
-in that precedence. Authentication is a single long-lived Score API token
-(a Sanr JWT): **the same token authenticates both backends** — bearer for Sanr,
-`x-api-key` for Arena — so set `ARENA_API_KEY` to the same value as `SANR_TOKEN`.
-There is no refresh flow. See the [score skill](skills/score-cli/SKILL.md) for
-the full workflow and exit-code contract.
+Authentication is a single long-lived Score API token (a Sanr JWT) that
+**authenticates both backends** — the CLI sends it as the Sanr bearer token and
+reuses it as the Arena `x-api-key`. Save it once:
+
+```
+./bin/score auth login --token "<TOKEN>"   # generate one at sanr.app → settings → Advanced → Generate token
+./bin/score auth status --json             # "authorized": true
+```
+
+It is cached in `~/.config/score/config.yaml` (mode 0600) and reused by every
+later command. Credentials otherwise resolve from flags > env (`SANR_TOKEN`,
+`ARENA_API_KEY`, `SCORE_*`) > config file. There is no refresh flow, and no need
+to set `ARENA_API_KEY` separately (it falls back to the token). See the
+[score skill](skills/score-cli/SKILL.md) for the full workflow and exit-code
+contract.

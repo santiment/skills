@@ -85,6 +85,28 @@ profiles:
 	}
 }
 
+func TestResolveArenaFallsBackToSanrToken(t *testing.T) {
+	t.Setenv(EnvSanrToken, "")
+	t.Setenv(EnvArenaAPIKey, "")
+	cfgPath := filepath.Join(t.TempDir(), "absent.yaml")
+
+	// Only a Sanr token is provided -> Arena key falls back to it (one token,
+	// both backends).
+	s, err := Resolve(Overrides{ConfigPath: cfgPath, Token: "the-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.SanrToken != "the-token" || s.ArenaAPIKey != "the-token" {
+		t.Errorf("both backends should use the token; got sanr=%q arena=%q", s.SanrToken, s.ArenaAPIKey)
+	}
+
+	// An explicit Arena key still overrides the fallback.
+	s, _ = Resolve(Overrides{ConfigPath: cfgPath, Token: "the-token", APIKey: "arena-specific"})
+	if s.ArenaAPIKey != "arena-specific" {
+		t.Errorf("explicit Arena key must win, got %q", s.ArenaAPIKey)
+	}
+}
+
 func TestLoadParseError(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "bad.yaml")
 	if err := os.WriteFile(cfgPath, []byte("current_profile: [not, a, scalar\n"), 0o600); err != nil {

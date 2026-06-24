@@ -38,18 +38,20 @@ func runCmd(t *testing.T, args ...string) (*App, string) {
 	return app, buf.String()
 }
 
-// auth set-token persists a JWT into the profile, and auth status reads it back
-// (masked). Exercises the real config.SaveTokens round-trip without network.
-func TestAuthSetTokenRoundTrip(t *testing.T) {
+// auth login persists the API token into the profile, and auth status reads it
+// back (masked, authorized=true). One token authenticates both backends, so a
+// single login is enough. Exercises the real config.SaveTokens round-trip.
+func TestAuthLoginRoundTrip(t *testing.T) {
 	// Clear env credentials so the file layer is what status reflects.
 	t.Setenv(config.EnvSanrToken, "")
 	t.Setenv(config.EnvArenaAPIKey, "")
 
 	cfg := filepath.Join(t.TempDir(), "config.yaml")
 
-	app, out := runCmd(t, "--config", cfg, "auth", "set-token", "--token", "jwt-abcdef")
+	// Leading "Bearer " and whitespace must be tolerated.
+	app, out := runCmd(t, "--config", cfg, "auth", "login", "--token", "  Bearer jwt-abcdef  ")
 	if app.exitCode != exitcode.OK {
-		t.Fatalf("set-token exit=%d, out=%s", app.exitCode, out)
+		t.Fatalf("login exit=%d, out=%s", app.exitCode, out)
 	}
 
 	app, out = runCmd(t, "--config", cfg, "auth", "status")
@@ -60,27 +62,36 @@ func TestAuthSetTokenRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("status output not a JSON object: %s", out)
 	}
-	if obj["sanrAuthorized"] != true {
-		t.Errorf("sanrAuthorized: want true, got %v", obj["sanrAuthorized"])
+	if obj["authorized"] != true {
+		t.Errorf("authorized: want true, got %v", obj["authorized"])
 	}
-	if tok, _ := obj["sanrToken"].(string); tok == "" || tok == "jwt-abcdef" {
-		t.Errorf("sanrToken should be present and masked, got %q", tok)
+	if tok, _ := obj["token"].(string); tok == "" || tok == "jwt-abcdef" {
+		t.Errorf("token should be present and masked, got %q", tok)
 	}
 }
 
-func TestAuthSetTokenMissingTokenIsUsageError(t *testing.T) {
+// logout clears the cached token: status then reports authorized=false.
+func TestAuthLogout(t *testing.T) {
+	t.Setenv(config.EnvSanrToken, "")
+	t.Setenv(config.EnvArenaAPIKey, "")
 	cfg := filepath.Join(t.TempDir(), "config.yaml")
-	app, out := runCmd(t, "--config", cfg, "auth", "set-token")
-	if app.exitCode != exitcode.Usage {
-		t.Errorf("missing --token must be usage error (2), got %d\nout=%s", app.exitCode, out)
+
+	runCmd(t, "--config", cfg, "auth", "login", "--token", "jwt-abcdef")
+	app, out := runCmd(t, "--config", cfg, "auth", "logout")
+	if app.exitCode != exitcode.OK {
+		t.Fatalf("logout exit=%d, out=%s", app.exitCode, out)
+	}
+	_, out = runCmd(t, "--config", cfg, "auth", "status")
+	if obj, _ := decodeObject(t, out); obj["authorized"] != false {
+		t.Errorf("after logout authorized must be false, got %v", obj["authorized"])
 	}
 }
 
-func TestAuthLoginMissingFlagsIsUsageError(t *testing.T) {
+func TestAuthLoginMissingTokenIsUsageError(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "config.yaml")
 	app, out := runCmd(t, "--config", cfg, "auth", "login")
 	if app.exitCode != exitcode.Usage {
-		t.Errorf("missing login flags must be usage error (2), got %d\nout=%s", app.exitCode, out)
+		t.Errorf("missing --token must be usage error (2), got %d\nout=%s", app.exitCode, out)
 	}
 }
 
@@ -94,7 +105,7 @@ func TestAuthStatusShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("status output not a JSON object: %s", out)
 	}
-	for _, key := range []string{"profile", "config", "sanrBaseURL", "arenaBaseURL", "sanrAuthorized", "arenaAuthorized"} {
+	for _, key := range []string{"profile", "config", "sanrBaseURL", "arenaBaseURL", "token", "authorized"} {
 		if _, ok := obj[key]; !ok {
 			t.Errorf("status missing key %q: %s", key, out)
 		}

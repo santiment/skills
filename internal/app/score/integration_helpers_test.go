@@ -8,14 +8,15 @@
 // gracefully: tests skip (never fail) when a credential or opt-in flag is
 // absent. See README / SKILL.md for the full list. Quick reference:
 //
-//	SANR_TOKEN               Sanr bearer session (long-lived API key; authed reads/writes)
-//	ARENA_API_KEY            Arena x-api-key (authed reads)
+//	SANR_TOKEN               the API token; authenticates BOTH backends (the CLI
+//	                         reuses it as the Arena x-api-key)
+//	ARENA_API_KEY            optional explicit Arena key (only if it differs)
 //	SCORE_TEST_WRITES=1      opt in to reversible write endpoints
 //	SCORE_TEST_DESTRUCTIVE=1 opt in to financial/irreversible writes
 //
-// The CLI already injects SANR_TOKEN / ARENA_API_KEY via config.Resolve, so
-// runLive needs no special wiring: setting the env var is enough for the
-// request to carry the credential.
+// The CLI injects the token via config.Resolve (Arena falls back to the Sanr
+// token), so runLive needs no special wiring: setting SANR_TOKEN is enough for
+// requests to both backends to carry the credential.
 package score
 
 import (
@@ -67,11 +68,14 @@ func requireSanrAuth(t *testing.T) {
 	}
 }
 
-// requireArenaAuth skips the test unless an Arena API key is present in the env.
+// requireArenaAuth skips the test unless a token that can authenticate Arena is
+// present. One token covers both backends, so SANR_TOKEN alone is enough (the
+// CLI falls back to it for the Arena x-api-key); an explicit ARENA_API_KEY also
+// works.
 func requireArenaAuth(t *testing.T) {
 	t.Helper()
-	if os.Getenv(config.EnvArenaAPIKey) == "" {
-		t.Skipf("set %s to run Arena authenticated tests", config.EnvArenaAPIKey)
+	if os.Getenv(config.EnvArenaAPIKey) == "" && os.Getenv(config.EnvSanrToken) == "" {
+		t.Skipf("set %s (or %s) to run Arena authenticated tests", config.EnvSanrToken, config.EnvArenaAPIKey)
 	}
 }
 

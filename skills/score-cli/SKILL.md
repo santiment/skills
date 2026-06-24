@@ -25,15 +25,17 @@ result. Never make the user hunt for flags or backends — that is your job.
 ## INPUTS
 - A built `score` binary (`./bin/score` after `task build`, or on PATH).
 - For authenticated or write commands: **one** Santiment Score API token (a Sanr
-  JWT, ~5-year validity). The **same token authenticates both backends** — it is
-  sent as the Sanr bearer token and as the Arena `x-api-key`. There is no refresh
-  flow. Public endpoints (health, markets, leaderboards, issuers/stakes/events/
-  contracts lists) need no credentials.
+  JWT, ~5-year validity). The **same token authenticates both backends** — the CLI
+  sends it as the Sanr bearer token and reuses it as the Arena `x-api-key`, so you
+  configure it **once** and never per-backend. Save it with `score auth login`
+  (preferred) or `SANR_TOKEN` / `--token`. There is no refresh flow. Public
+  endpoints (health, markets, leaderboards, issuers/stakes/events/contracts lists)
+  need no credentials.
 - (optional) `--profile` / `--config` to select a credentials profile.
 
 ## GETTING THE API TOKEN (guide the user through this)
 A command failed with exit 3 (auth), or you know it needs auth and no token is
-configured (`score auth status --json` shows `"sanrAuthorized": false`). Walk the
+configured (`score auth status --json` shows `"authorized": false`). Walk the
 user through obtaining a token — do not give up or loop:
 
 1. **Ask for their Sanr username** if you do not already know it (it is the
@@ -42,25 +44,26 @@ user through obtaining a token — do not give up or loop:
    `https://sanr.app/user/<username>/settings`
 3. **Explain**: on that page open the **"Advanced"** section and click
    **"Generate token"** to create an API key, then paste the token back to you.
-4. **Cache it** so every later command is authenticated:
+4. **Save it** once — this authenticates both backends and persists across runs:
    ```
-   score auth set-token --token "<TOKEN>"
+   score auth login --token "<TOKEN>"
    ```
-   For the same shell session you can instead export it (covers both backends):
-   ```
-   export SANR_TOKEN="<TOKEN>" ARENA_API_KEY="<TOKEN>"
-   ```
-5. **Confirm** it took effect: `score auth status --json` →
-   `"sanrAuthorized": true` (set `ARENA_API_KEY` to the same value for
-   `"arenaAuthorized": true`).
+   (login tolerates a leading `Bearer ` or surrounding spaces.) For a one-off
+   shell session you can instead `export SANR_TOKEN="<TOKEN>"`.
+5. **Confirm** it took effect: `score auth status --json` → `"authorized": true`.
 
-Treat the token as a secret: never echo it back in full, never log it, never put
-it in a shared file or a command the user did not authorize. Setup is one-time —
-the token is long-lived.
+Notes:
+- `score auth login` writes the token to the config file (default
+  `~/.config/score/config.yaml`, mode 0600); every later command reads it
+  automatically. No need to pass `--token` again or set `ARENA_API_KEY`.
+- `score auth logout` clears the saved token.
+- Treat the token as a secret: never echo it back in full, never log it, never
+  put it in a shared file or a command the user did not authorize. Setup is
+  one-time — the token is long-lived.
 
 ## PROCESS
 1. Verify connectivity: `score health --json` (pings both backends; expect exit 0).
-2. Ensure credentials if the command needs them (see GETTING THE API TOKEN and DECISION RULES).
+2. Ensure credentials if the command needs them. If `score auth status --json` shows `"authorized": false`, run the GETTING THE API TOKEN flow. A single `score auth login` covers both backends.
 3. Discover the exact command/flags when unsure: `score describe --json` (full catalog) or `score <group> --help`. Do not guess flags.
 4. Run the command with `--json`. Pass list filters via `--take/--skip/--sort/--filter` (Sanr) or `--limit/--offset` (Arena), and any other query parameter via repeatable `--param key=value`.
 5. For write operations, build the JSON body from the schema (`score <command> --help` / `describe`) and pass it via `--data '<json>'` or `--data-file <path|->`. Confirm state-changing actions with the user first.
@@ -94,9 +97,11 @@ score contracts list --json
 
 Auth (one token for both backends; no refresh flow):
 ```
-score auth set-token --token "$TOKEN"                    # cache the token into the profile
-export SANR_TOKEN="$TOKEN" ARENA_API_KEY="$TOKEN"        # same value for both backends
-score auth status --json                                  # check sanrAuthorized / arenaAuthorized
+score auth login --token "$TOKEN"     # save the token (authenticates Sanr + Arena), persists to config
+score auth status --json              # check "authorized": true
+score auth logout                     # remove the saved token
+# Alternative for a one-off session instead of `login`:
+export SANR_TOKEN="$TOKEN"
 ```
 
 Write examples (state-changing — confirm first):
@@ -119,7 +124,7 @@ echo '{"...":"..."}' | score portfolio deposit --data-file - --json
 - Always branch on the exit code before parsing stdout.
 
 ## FAILURE HANDLING
-- Exit 3 (auth): no token, or it is expired/revoked → run the GETTING THE API TOKEN flow (ask username → `https://sanr.app/user/<username>/settings` → Advanced → Generate token → `score auth set-token`). For Arena commands ensure `ARENA_API_KEY` is set to the same token. Do not retry blindly.
+- Exit 3 (auth): no token, or it is expired/revoked → run the GETTING THE API TOKEN flow (ask username → `https://sanr.app/user/<username>/settings` → Advanced → Generate token → `score auth login --token <TOKEN>`). One token covers both backends. Do not retry blindly.
 - Exit 4 (not found): the id/username/address does not exist → re-list to find a valid identifier instead of retrying. Note: portfolio commands can return `ISSUER_NOT_FOUND` for an account that simply has no portfolio yet (e.g. a brand-new or GDPR-cleared account) — that is account state, not a CLI fault.
 - Exit 7 (network/timeout): backend unreachable → run `score health --json` to localize the failure; raise `--timeout` for slow calls; retry with backoff a limited number of times.
 - Exit 5 (rate limited): back off and retry after a short delay; do not hammer.
@@ -128,8 +133,8 @@ echo '{"...":"..."}' | score portfolio deposit --data-file - --json
 ## EDGE CASES
 - **No credentials yet (first run):** don't fail — start the GETTING THE API TOKEN flow. Ask for the username, hand over the settings link, explain Advanced → Generate token.
 - **User doesn't know their username:** it's the handle in their Sanr profile URL (`sanr.app/user/<username>`). Ask them to open sanr.app while logged in and read it from the address bar.
-- **Token pasted with noise:** strip surrounding quotes, whitespace, or a leading `Bearer ` before passing it to `--token` / `set-token`.
-- **Arena command returns 401/403 but Sanr works:** `ARENA_API_KEY` isn't set. Set it to the same token value as `SANR_TOKEN`.
+- **Token pasted with noise:** `score auth login` already trims surrounding whitespace and a leading `Bearer `; still strip stray quotes from the user's paste.
+- **Arena command returns 401/403:** the token isn't configured. Run `score auth login` (it covers Arena too); you do not need a separate `ARENA_API_KEY` unless Arena uses a different key.
 - **`pairs favorites` returns 401 unauthenticated:** it requires the token even though other `pairs` subcommands are public.
 - **`pairs aggregated` returns 400 `WRONG_SORT_OR_FILTER_FIELD`:** it needs a valid, non-empty `--filter` (filter JSON without outer braces, e.g. `--filter '"asset":"BTC"'`); an empty/unknown field is rejected.
 - **Hyperliquid path:** the commands are `issuers hyperliquid <metrics|positions|trades|snapshots> <id>` — `issuers hyperliquid` alone just prints help, and there is no top-level `hyperliquid`/`issuers metrics`.
@@ -146,7 +151,7 @@ GOOD OUTPUT: `score markets list --take 3 --sort 'createdAt:desc' --json` → ex
 BAD OUTPUT: `score sanr markets --backend sanr` — invents a backend selector that does not exist; routing is automatic.
 
 INPUT: "Show my portfolio balances." (no token configured)
-GOOD OUTPUT: `score profile get --json` → exit 3 → start the token flow: ask the user's username, send them `https://sanr.app/user/<username>/settings`, explain Advanced → Generate token, then `score auth set-token --token "<TOKEN>"` and retry.
+GOOD OUTPUT: `score profile get --json` → exit 3 → start the token flow: ask the user's username, send them `https://sanr.app/user/<username>/settings`, explain Advanced → Generate token, then `score auth login --token "<TOKEN>"` and retry.
 BAD OUTPUT: retrying `portfolio balances` repeatedly and reporting "auth error" without helping the user get a token.
 
 INPUT: "Get the Hyperliquid metrics for issuer abc-123."
