@@ -1,0 +1,314 @@
+{
+  "_comment": "Golden order-builder float-path vectors (FROZEN). slippage = _slippage_price; formatting = _format_price/_format_size; payloads = build_order_payload msgpack/action_hash.",
+  "slippage": [
+    {
+      "price": "67500",
+      "is_buy": true,
+      "sz_decimals": 3,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "67838.0",
+      "formatted": "67838"
+    },
+    {
+      "price": "67500",
+      "is_buy": false,
+      "sz_decimals": 3,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "67162.0",
+      "formatted": "67162"
+    },
+    {
+      "price": "1700.55",
+      "is_buy": true,
+      "sz_decimals": 2,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "1709.1",
+      "formatted": "1709.1"
+    },
+    {
+      "price": "1700.55",
+      "is_buy": false,
+      "sz_decimals": 2,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "1692.0",
+      "formatted": "1692"
+    },
+    {
+      "price": "0.123456",
+      "is_buy": true,
+      "sz_decimals": 0,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "0.12407",
+      "formatted": "0.12407"
+    },
+    {
+      "price": "0.123456",
+      "is_buy": false,
+      "sz_decimals": 0,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "0.12284",
+      "formatted": "0.12284"
+    },
+    {
+      "price": "2.675",
+      "is_buy": true,
+      "sz_decimals": 0,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "2.6884",
+      "formatted": "2.6884"
+    },
+    {
+      "price": "2.675",
+      "is_buy": false,
+      "sz_decimals": 0,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "2.6616",
+      "formatted": "2.6616"
+    },
+    {
+      "price": "123456.789",
+      "is_buy": true,
+      "sz_decimals": 1,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "124070.0",
+      "formatted": "124070"
+    },
+    {
+      "price": "123456.789",
+      "is_buy": false,
+      "sz_decimals": 4,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "122840.0",
+      "formatted": "122840"
+    },
+    {
+      "price": "9.99995",
+      "is_buy": true,
+      "sz_decimals": 0,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "10.05",
+      "formatted": "10.05"
+    },
+    {
+      "price": "0.0000456789",
+      "is_buy": true,
+      "sz_decimals": 2,
+      "is_spot": true,
+      "slippage": "0.005",
+      "result": "0.000046",
+      "formatted": "0.000046"
+    },
+    {
+      "price": "31415.926",
+      "is_buy": false,
+      "sz_decimals": 2,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "31259.0",
+      "formatted": "31259"
+    },
+    {
+      "price": "100000",
+      "is_buy": true,
+      "sz_decimals": 0,
+      "is_spot": false,
+      "slippage": "0.005",
+      "result": "100500.0",
+      "formatted": "100500"
+    }
+  ],
+  "formatting": [
+    {
+      "value": "1700",
+      "formatted_price": "1700",
+      "formatted_size": "1700"
+    },
+    {
+      "value": "1700.0",
+      "formatted_price": "1700",
+      "formatted_size": "1700"
+    },
+    {
+      "value": "1700.00000000",
+      "formatted_price": "1700",
+      "formatted_size": "1700"
+    },
+    {
+      "value": "0.1",
+      "formatted_price": "0.1",
+      "formatted_size": "0.1"
+    },
+    {
+      "value": "0.10000000",
+      "formatted_price": "0.1",
+      "formatted_size": "0.1"
+    },
+    {
+      "value": "1700.5",
+      "formatted_price": "1700.5",
+      "formatted_size": "1700.5"
+    },
+    {
+      "value": "0.123456789",
+      "formatted_price": "0.12345679",
+      "formatted_size": "0.12345679"
+    },
+    {
+      "value": "0.000000005",
+      "formatted_price": "0",
+      "formatted_size": "0"
+    },
+    {
+      "value": "100",
+      "formatted_price": "100",
+      "formatted_size": "100"
+    },
+    {
+      "value": "0",
+      "formatted_price": "0",
+      "formatted_size": "0"
+    },
+    {
+      "value": "63787.5",
+      "formatted_price": "63787.5",
+      "formatted_size": "63787.5"
+    },
+    {
+      "value": "71437.5",
+      "formatted_price": "71437.5",
+      "formatted_size": "71437.5"
+    },
+    {
+      "value": "12345.6789",
+      "formatted_price": "12345.6789",
+      "formatted_size": "12345.6789"
+    }
+  ],
+  "payloads": [
+    {
+      "label": "limit_long_entry_only",
+      "signal": {
+        "pair": "BTC",
+        "side": "long",
+        "order_type": "limit",
+        "size": "0.1",
+        "leverage": 5,
+        "entry_price": "67500",
+        "stop_loss": null,
+        "take_profit": null
+      },
+      "asset_index": 0,
+      "current_price": null,
+      "sz_decimals": 0,
+      "nonce": 1700000000000,
+      "msgpack_hex": "83a474797065a56f72646572a66f72646572739186a16100a162c3a170a53637353030a173a3302e31a172c2a17481a56c696d697481a3746966a3477463a867726f7570696e67a26e61",
+      "action_hash": "0xa81e4df757d289a5afb880ec31e8bcde731d8f869331066e6494d0b0a73b9b6a"
+    },
+    {
+      "label": "limit_long_full_tpsl",
+      "signal": {
+        "pair": "BTC",
+        "side": "long",
+        "order_type": "limit",
+        "size": "0.1",
+        "leverage": 5,
+        "entry_price": "67500",
+        "stop_loss": "66000",
+        "take_profit": "70000"
+      },
+      "asset_index": 0,
+      "current_price": null,
+      "sz_decimals": 0,
+      "nonce": 1700000000000,
+      "msgpack_hex": "83a474797065a56f72646572a66f72646572739386a16100a162c3a170a53637353030a173a3302e31a172c2a17481a56c696d697481a3746966a347746386a16100a162c2a170a53635363730a173a3302e31a172c3a17481a77472696767657283a869734d61726b6574c3a9747269676765725078a53636303030a47470736ca2736c86a16100a162c2a170a53639363530a173a3302e31a172c3a17481a77472696767657283a869734d61726b6574c3a9747269676765725078a53730303030a47470736ca27470a867726f7570696e67aa6e6f726d616c5470736c",
+      "action_hash": "0x039e3911cabeabf520d5e199c51fd6c81eafed7468d1823476d43cf4fa2bf8f5"
+    },
+    {
+      "label": "limit_short_sl_only",
+      "signal": {
+        "pair": "BTC",
+        "side": "short",
+        "order_type": "limit",
+        "size": "0.1",
+        "leverage": 5,
+        "entry_price": "67500",
+        "stop_loss": "69000",
+        "take_profit": null
+      },
+      "asset_index": 0,
+      "current_price": null,
+      "sz_decimals": 0,
+      "nonce": 1700000000000,
+      "msgpack_hex": "83a474797065a56f72646572a66f72646572739286a16100a162c2a170a53637353030a173a3302e31a172c2a17481a56c696d697481a3746966a347746386a16100a162c3a170a53639333435a173a3302e31a172c3a17481a77472696767657283a869734d61726b6574c3a9747269676765725078a53639303030a47470736ca2736ca867726f7570696e67aa6e6f726d616c5470736c",
+      "action_hash": "0xe4c9eae82941ed3b3b0964a017b433ae5730a76ff4651029a1b00f306074f49a"
+    },
+    {
+      "label": "limit_long_tp_only",
+      "signal": {
+        "pair": "BTC",
+        "side": "long",
+        "order_type": "limit",
+        "size": "0.1",
+        "leverage": 5,
+        "entry_price": "67500",
+        "stop_loss": null,
+        "take_profit": "70000"
+      },
+      "asset_index": 0,
+      "current_price": null,
+      "sz_decimals": 0,
+      "nonce": 1700000000000,
+      "msgpack_hex": "83a474797065a56f72646572a66f72646572739286a16100a162c3a170a53637353030a173a3302e31a172c2a17481a56c696d697481a3746966a347746386a16100a162c2a170a53639363530a173a3302e31a172c3a17481a77472696767657283a869734d61726b6574c3a9747269676765725078a53730303030a47470736ca27470a867726f7570696e67aa6e6f726d616c5470736c",
+      "action_hash": "0x42a008f0e0a957cc6b0925a9fde0f30064a8733c9c04ddb97698f18adfaaba45"
+    },
+    {
+      "label": "market_long",
+      "signal": {
+        "pair": "ETH",
+        "side": "long",
+        "order_type": "market",
+        "size": "1.0",
+        "leverage": 10,
+        "entry_price": null,
+        "stop_loss": null,
+        "take_profit": null
+      },
+      "asset_index": 1,
+      "current_price": "3500",
+      "sz_decimals": 0,
+      "nonce": 1700000000000,
+      "msgpack_hex": "83a474797065a56f72646572a66f72646572739186a16101a162c3a170a6333531372e35a173a131a172c2a17481a56c696d697481a3746966a3496f63a867726f7570696e67a26e61",
+      "action_hash": "0xdf1c3024bfaac08e2af2509ec6dd7fb1373ae8dc9d4835f64fbab7208d89bd1b"
+    },
+    {
+      "label": "market_short",
+      "signal": {
+        "pair": "ETH",
+        "side": "short",
+        "order_type": "market",
+        "size": "1.0",
+        "leverage": 5,
+        "entry_price": null,
+        "stop_loss": null,
+        "take_profit": null
+      },
+      "asset_index": 1,
+      "current_price": "3500",
+      "sz_decimals": 0,
+      "nonce": 1700000000000,
+      "msgpack_hex": "83a474797065a56f72646572a66f72646572739186a16101a162c2a170a6333438322e35a173a131a172c2a17481a56c696d697481a3746966a3496f63a867726f7570696e67a26e61",
+      "action_hash": "0x8cd01b2337e40f82046a22df21f9e00e90bc7ad5d9ab245f03d1d43cd67b93e8"
+    }
+  ]
+}

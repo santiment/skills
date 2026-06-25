@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A monorepo scaffold for a **family** of agent-friendly Go CLIs plus their `SKILL.md` files. One tool exists today: `score`, a client for the two Santiment Score backends. The structure is meant to grow new tools without reshaping the tree — see `docs/conventions.md` for the extension guide and `README.md` for the overview.
+A monorepo scaffold for a **family** of agent-friendly Go CLIs plus their `SKILL.md` files. Two tools exist today: `score` (a client for the two Santiment Score backends) and `hyperhandler` (a stateless executor/monitor for the Hyperliquid DEX — manual-mode order exec, positions/orders/balances, HD wallet/keyring, EIP-712 signing; testnet default with a mainnet `--confirm` guard). The structure is meant to grow new tools without reshaping the tree — see `docs/conventions.md` for the extension guide and `README.md` for the overview.
 
 ## Commands
 

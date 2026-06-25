@@ -21,3 +21,6 @@ coverage.*
 # Editors
 .idea/
 .vscode/
+
+# Runtime cache of the hyperhandler binary materialized by the skill's run.sh wrapper
+skills/hyperhandler/scripts/.bin/

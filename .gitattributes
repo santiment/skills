@@ -2,3 +2,7 @@
 # text. Keep their bytes verbatim: never apply CRLF/text normalization (which
 # would corrupt the encoded payload) and don't render diffs for them.
 skills/score/scripts/*.gz.b64 -text -diff
+
+# Bundled hyperhandler binaries shipped inside the hyperhandler skill as
+# gzip+base64 text. Keep their bytes verbatim (no CRLF/text normalization, no diff).
+skills/hyperhandler/scripts/*.gz.b64 -text -diff

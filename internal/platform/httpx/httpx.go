@@ -24,6 +24,11 @@ type Options struct {
 	Timeout time.Duration
 	// MaxRetries is the number of retries after the first attempt. Zero means 2.
 	MaxRetries int
+	// DisableRetry forces zero retries regardless of MaxRetries. Use it when a
+	// caller owns its own retry loop (e.g. a client that must not double-retry a
+	// signed, nonce-bearing request) but still wants the shared engine's
+	// timeout/User-Agent handling.
+	DisableRetry bool
 	// UserAgent is sent on every request.
 	UserAgent string
 	// Transport overrides the underlying RoundTripper (tests inject here).
@@ -44,6 +49,9 @@ func New(opts Options) *Client {
 	}
 	if opts.MaxRetries == 0 {
 		opts.MaxRetries = 2
+	}
+	if opts.DisableRetry {
+		opts.MaxRetries = 0
 	}
 	if opts.UserAgent == "" {
 		opts.UserAgent = "san-skills-cli"

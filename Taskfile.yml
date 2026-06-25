@@ -4,13 +4,12 @@ version: "3"
 
 vars:
   # Space-separated list of CLI binaries in the family. Add new tools here.
-  TOOLS: score
+  TOOLS: score hyperhandler
   BIN_DIR: "{{.ROOT_DIR}}/bin"
-  # Platforms to bundle the `score` binary for inside the score skill.
+  # Platforms to bundle each tool binary for inside its skill.
   # Space-separated GOOS/GOARCH pairs. Extend with linux/arm64 darwin/amd64
   # windows/amd64 if those targets are needed (Windows also needs a .ps1 wrapper).
   SKILL_PLATFORMS: linux/amd64 darwin/arm64
-  SCORE_SKILL_DIR: "{{.ROOT_DIR}}/skills/score/scripts"
 
 tasks:
   default:
@@ -35,17 +34,24 @@ tasks:
         cmd: go build -o "{{.BIN_DIR}}/{{.ITEM}}" ./cmd/{{.ITEM}}
 
   skill-bundle:
-    desc: Cross-compile score and bundle it (gzip+base64) into the score skill
+    desc: Cross-compile each tool and bundle it (gzip+base64) into its skill
     cmds:
-      - for: { var: SKILL_PLATFORMS }
-        cmd: |
-          os="$(echo '{{.ITEM}}' | cut -d/ -f1)"
-          arch="$(echo '{{.ITEM}}' | cut -d/ -f2)"
-          tmp="$(mktemp)"
-          CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -o "$tmp" ./cmd/score
-          gzip -c "$tmp" | base64 > "{{.SCORE_SKILL_DIR}}/score-$os-$arch.gz.b64"
-          rm -f "$tmp"
-          echo "bundled score-$os-$arch.gz.b64 ($(wc -c < "{{.SCORE_SKILL_DIR}}/score-$os-$arch.gz.b64") bytes)"
+      - |
+        for tool in {{.TOOLS}}; do
+          dir="{{.ROOT_DIR}}/skills/$tool/scripts"
+          if [ ! -d "$dir" ]; then
+            echo "skip $tool: no skill dir at $dir"
+            continue
+          fi
+          for plat in {{.SKILL_PLATFORMS}}; do
+            os="${plat%/*}"; arch="${plat#*/}"
+            tmp="$(mktemp)"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -o "$tmp" ./cmd/$tool
+            gzip -c "$tmp" | base64 > "$dir/$tool-$os-$arch.gz.b64"
+            rm -f "$tmp"
+            echo "bundled $tool-$os-$arch.gz.b64 ($(wc -c < "$dir/$tool-$os-$arch.gz.b64") bytes)"
+          done
+        done
 
   lint:
     desc: Run golangci-lint over the whole module
