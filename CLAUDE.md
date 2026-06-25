@@ -12,12 +12,12 @@ A monorepo scaffold for a **family** of agent-friendly Go CLIs plus their `SKILL
 task gen               # normalize OpenAPI specs + regenerate API clients (run after editing specs or specnorm)
 task build             # build all CLI binaries into ./bin
 task test              # unit tests, no network
-task test-integration  # tests tagged //go:build integration; hit live Score APIs (read-only)
+task test-integration  # tests tagged //go:build integration; score → live Score APIs (read-only), hyperhandler → live Hyperliquid testnet (read; signed write gated by HL_TESTNET_PRIVATE_KEY + HH_TEST_WRITES=1)
 task lint              # golangci-lint (v2 config)
 ```
 
 Run a single test: `go test ./internal/platform/config/ -run TestResolvePrecedence -v`
-Run the binary directly: `go run ./cmd/score <args>` or `./bin/score <args>` after `task build`.
+Run the binary directly: `go run ./cmd/score <args>` / `go run ./cmd/hyperhandler <args>`, or `./bin/<tool> <args>` after `task build`.
 
 `oapi-codegen` is a pinned Go tool dependency (`go tool oapi-codegen`); no separate install needed. `task` and `golangci-lint` must be on PATH.
 
@@ -35,6 +35,14 @@ Note `profile` (Sanr, the authenticated user's own record) and `issuers` (Arena,
 - `internal/clients/{sanr,arena}/gen.go` is **generated — never hand-edit** (carries the DO-NOT-EDIT header, excluded from lint, committed to git). `*.normalized.json` is generated and **gitignored**.
 - `client.go` in those packages is **hand-written and never overwritten** — it wires the generated client to `httpx` and injects auth.
 - **When codegen fails on a spec quirk, fix `tools/specnorm`, not `gen.go`.** Sanr is OpenAPI 3.1, which `oapi-codegen` (kin-openapi, 3.0-oriented) cannot fully consume. `specnorm` downgrades to 3.0 and rewrites: `type:[X,"null"]` → nullable, multi-type arrays → free-form, `oneOf:[ref,{type:"null"}]` nullable-union idiom, missing `operationId`s (derived from method+path), and untyped query parameters (inferred from `example`; untyped params otherwise generate `interface{}` fields that panic at runtime when nil).
+- **Codegen is optional.** A tool whose API has no OpenAPI spec ships a fully **hand-written** client and no `gen` step. `internal/clients/hyperliquid/*` is the example: synchronous `net/http` over the Hyperliquid JSON API, with its own retry/backoff, HL error-envelope decoding, and EIP-712/msgpack signing — none of it generated, none of it in `task gen`.
+
+**hyperhandler — the non-obvious parts (the second tool).** A **stateless** executor/monitor for the Hyperliquid DEX; the agent owns strategy and risk.
+- **Layout differs from score.** CLI in `internal/app/hyperhandler`; hand-written client in `internal/clients/hyperliquid`; tool-specific domain in `internal/hyperhandler/{signer,wallet,order,models,service,decimalx,golden}`. Commands emit typed Go structs via `output.Printer.EmitValue` (not raw API passthrough like score).
+- **Own config, not `platform/config`.** `internal/hyperhandler/config` reads `~/.hyperhandler/config.yaml` (sections `network`/`trading`/`security`) overlaid by `HL_NETWORK` / `HL_TRADING__*` (delimiter `__`). The private key resolves from `HL_PRIVATE_KEY` / `HL_{MAINNET,TESTNET}_PRIVATE_KEY` or the OS keyring (`internal/hyperhandler/wallet`) — **never** from argv or plaintext config. The schemas are too different from score's token model to share one loader.
+- **httpx, but the client owns retries.** All HTTP goes through `platform/httpx` with the new `Options.DisableRetry` set, because a signed action **replays the same nonce** on retry (replay-protected) and must not be double-retried — the hyperliquid client is the single retry authority. Nonces come from a process-monotonic generator (`max(now, last+1)`) to avoid same-millisecond collisions the exchange rejects.
+- **Safety rails.** Default network is **testnet**; a state-changing command on mainnet (`exec` without `--dry-run`, `cancel`) needs explicit `--confirm` (else exit 2, nothing sent). The config `security` limits (`max_leverage`, `max_position_size_usd`, `require_stop_loss`) are enforced as a pre-trade validation gate.
+- **Frozen money math.** `internal/hyperhandler/order/builder.go` deliberately mixes Decimal/float64 (5-sig-fig + round-half-even) to match the Hyperliquid wire price byte-for-byte — **do not "clean up" to pure Decimal**; it is guarded by byte-identity golden vectors (EIP-712/msgpack/HD) in `internal/hyperhandler/testdata/golden/`. The Python oracle that generated them is **not** vendored; regenerate from the Hyperliquid SDK if ever needed.
 
 **Command implementation pattern.** Every cobra command (`internal/app/score/*.go`) follows the same shape; copy an existing one when adding commands:
 1. `client, _ := app.sanr()` or `app.arena()`.
@@ -67,13 +75,17 @@ Text files (scripts, base64) survive **both** paths intact.
 
 **The pattern — bundle the binary as text.** Established by the `score` skill; copy it for
 any new tool-backed skill (a skill is named after its tool, e.g. `skills/score/`):
-- `task skill-bundle` cross-compiles the tool (`CGO_ENABLED=0`, pure `net/http` → trivial)
-  for each `GOOS/GOARCH` in `SKILL_PLATFORMS` and writes `skills/<tool>/scripts/<tool>-<os>-<arch>.gz.b64`
-  (gzip+base64 text, ~8 MB/platform). Default targets: `linux/amd64`, `darwin/arm64`.
+- `task skill-bundle` cross-compiles **every tool in `TOOLS` that has a `skills/<tool>/scripts/`
+  dir** (must stay `CGO_ENABLED=0` — pure Go; `go-ethereum`'s crypto is CGO-free, so hyperhandler
+  cross-compiles fine) for each `GOOS/GOARCH` in `SKILL_PLATFORMS` and writes
+  `skills/<tool>/scripts/<tool>-<os>-<arch>.gz.b64` (gzip+base64 text; ~8 MB for score, ~10 MB for
+  hyperhandler). Default targets: `linux/amd64`, `darwin/arm64`.
 - `skills/<tool>/scripts/run.sh` is the launcher the SKILL.md tells the agent to call
   (`bash <skill-dir>/scripts/run.sh <args>`). On first run it decodes the host's blob into
-  `scripts/.bin/` (gitignored), `chmod +x`, and `exec`s it; later runs reuse the cache.
+  `scripts/.bin/`, `chmod +x`, and `exec`s it; later runs reuse the cache.
   Decode is base64→gunzip with a portable fallback (`base64 --decode` on GNU, else `openssl base64 -d`).
+  **The `.bin/` cache is gitignored per tool** — add `skills/<tool>/scripts/.bin/` to `.gitignore`
+  when you add a new skill, or the decoded ~10 MB binary gets committed.
 - `.gitattributes` pins `skills/<tool>/scripts/*.gz.b64 -text -diff` so CRLF normalization can't
   corrupt the encoded bytes.
 - The SKILL.md states the tool ships bundled (no build step) and uses `score` as shorthand
@@ -89,4 +101,5 @@ prebuilt binary from GitHub Releases instead of embedding it — needs a release
 
 - Agent-first UX is mandatory for any CLI here: `--json`, a `describe [--json]` catalog command, stable exit codes, stable flags, fully non-interactive (no hidden prompts). Mark state-changing subcommands as such in help and SKILL.md.
 - Tests inject a buffer-backed printer before `Execute()`; `App.setup` only creates a printer when `app.printer == nil`. The routing tests in `internal/app/score/routing_test.go` spin httptest servers and assert which backend a command hits — mirror that when adding commands.
-- Adding a tool/command or a new backend: follow `docs/conventions.md` (new `cmd/<tool>` + `internal/app/<tool>`, reuse `internal/platform`, vendor spec + add a `gen` step + `client.go`, add to `TOOLS` in `Taskfile.yml`, write `skills/<tool>/SKILL.md` from `skills/_template`). To make that skill installable + self-contained, follow **Skill packaging for `npx skills`** above (bundle the binary via `task skill-bundle` + a `scripts/run.sh` launcher).
+- Adding a tool/command or a new backend: follow `docs/conventions.md` (new `cmd/<tool>` + `internal/app/<tool>`, reuse `internal/platform`, add to `TOOLS` in `Taskfile.yml`, write `skills/<tool>/SKILL.md` from `skills/_template`). For the API client: vendor a spec + add a `gen` step + `client.go` **if the API has an OpenAPI spec**, otherwise hand-write the client (see `internal/clients/hyperliquid`). To make that skill installable + self-contained, follow **Skill packaging for `npx skills`** above (bundle the binary via `task skill-bundle`, a `scripts/run.sh` launcher, `.gitattributes` for `*.gz.b64`, and a `.gitignore` entry for the tool's `scripts/.bin/`).
+- **Keep `README.md` and this `CLAUDE.md` current — update them in the same change that makes them stale.** `README.md` is the human/agent overview (the Tools table, layout, `task` list, `npx skills` section, per-tool quick start); `CLAUDE.md` is the architecture/conventions guide. Both must be refreshed whenever you: add/remove a tool or skill; change the command set, flags, the `--json` shape, or the exit-code contract; change the auth/config model; change the codegen-vs-hand-written-client split; or change skill-packaging steps. A stale overview misleads the next agent more than missing docs do.
